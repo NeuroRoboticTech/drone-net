@@ -1,0 +1,5 @@
+*.log
+*.pyc
+./images/*.xcf
+./images/*_label.png
+.idea/*

@@ -1,5 +1,5 @@
 """
-Code ideas from https://github.com/Newmu/dcgan and tensorflow mnist dataset reader
+Generates training data for DetectNet or image segmentation from the drone-net real images.
 """
 import sys
 import os
@@ -48,7 +48,7 @@ def processArgs():
     args, unknown = parser.parse_known_args()
     return args
 
-class DetectNetDataGenerator ():
+class RealImageDataGen ():
 
     def __init__(self, args):
         """
@@ -708,10 +708,10 @@ class DetectNetDataGenerator ():
         logging.info("Finished generating images.")
 
 if __name__ == "__main__":
-    utils.setupLogging('detectnet_data_gen')
+    utils.setupLogging('real_image_gen')
 
     args = processArgs()
-    gen = DetectNetDataGenerator(args)
+    gen = RealImageDataGen(args)
 
     gen.initialize()
 
