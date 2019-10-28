@@ -8,6 +8,7 @@ import logging
 import shutil
 import time
 import math
+import json
 
 import numpy as np
 import cv2
@@ -15,164 +16,8 @@ import scipy.misc as misc
 from skimage.transform import rescale, resize, downscale_local_mean
 from skimage import  img_as_ubyte
 import argparse
+import utils
 
-def setupLogging():
-    logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
-    rootLogger = logging.getLogger()
-
-    fileHandler = logging.FileHandler("{0}/{1}.log".format('.', 'detect_net_data_gen'))
-    fileHandler.setFormatter(logFormatter)
-    rootLogger.addHandler(fileHandler)
-
-    consoleHandler = logging.StreamHandler()
-    consoleHandler.setFormatter(logFormatter)
-    rootLogger.addHandler(consoleHandler)
-
-    #logging.basicConfig(filename='/home/dcofer/detect_net_data_gen.log', level=logging.INFO)
-    #logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
-    rootLogger.setLevel(level=logging.INFO)
-    logging.info("starting up")
-
-def rotateImg(img, angle, mask_in=None):
-    if angle == 0:
-        return img, mask_in
-
-    # grab the dimensions of the image
-    (h, w) = img.shape[:2]
-
-    max_dim = int(max(h, w) * 2.0)
-    max_dim_2 = int(max_dim/2.0)
-
-    # Get a blank array the max paste size
-    if len(img.shape) > 2:
-        buffer_roi = np.zeros([max_dim, max_dim, img.shape[2]], dtype=np.uint8)
-        buffer_roi_mask = np.zeros([max_dim, max_dim], dtype=np.uint8)
-    else:
-        buffer_roi = np.zeros([max_dim, max_dim], dtype=np.uint8)
-        buffer_roi_mask = np.zeros([max_dim, max_dim], dtype=np.uint8)
-
-    center_rotate_roi = int(max_dim / 2.0)
-    paste_left = int(img.shape[1] / 2.0)
-    paste_right = img.shape[1] - paste_left
-    paste_top = int(img.shape[0] / 2.0)
-    paste_bottom = img.shape[0] - paste_top
-
-    # Copy the image into the center of this
-    buffer_roi[(center_rotate_roi - paste_top):(center_rotate_roi + paste_bottom),
-               (center_rotate_roi - paste_left):(center_rotate_roi + paste_right)] = img
-    if mask_in is not None:
-        buffer_roi_mask[(center_rotate_roi - paste_top):(center_rotate_roi + paste_bottom),
-                        (center_rotate_roi - paste_left):(center_rotate_roi + paste_right)] = mask_in
-
-    # showAndWait('buffer_roi', buffer_roi)
-
-    rotated = misc.imrotate(buffer_roi, angle)
-
-    if len(img.shape) > 2:
-        paste_grey = cv2.cvtColor(rotated, cv2.COLOR_BGR2GRAY)
-    else:
-        paste_grey = rotated
-
-    # showAndWait('paste_grey', paste_grey)
-    # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/paste_grey.png', paste_grey)
-
-    ret, rotated_mask = cv2.threshold(paste_grey, 5, 255, cv2.THRESH_BINARY)
-
-    # showAndWait('mask', rotated_mask)
-    # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/rotated_mask.png', rotated_mask)
-
-    where = np.array(np.where(rotated_mask))
-    # np.savetxt('/media/dcofer/Ubuntu_Data/drone_images/fuckhead.csv', np.transpose(where))
-
-    x1, y1 = np.amin(where, axis=1)
-    x2, y2 = np.amax(where, axis=1)
-
-    out_image = rotated[x1:x2, y1:y2]
-    out_mask = rotated_mask[x1:x2, y1:y2]
-
-    # showAndWait('out_image', out_image)
-    # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/out_image.png', out_image)
-
-    # return the rotated image
-    return out_image, out_mask
-
-def generateMask(img):
-    if len(img.shape) == 3:
-        img_grey = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    else:
-        img_grey = img
-
-    ret, mask = cv2.threshold(img_grey, 5, 255, cv2.THRESH_BINARY)
-    return mask
-
-def showAndWait(name, img):
-    cv2.imshow(name, img)
-    cv2.waitKey(0)
-
-def findFilesOfType(input_dir, endings):
-    # Get the xml files in the directory
-    files = os.listdir(input_dir)
-
-    out_files = []
-    for file in files:
-        for ext in endings:
-            if file.endswith(ext):
-                out_files.append(input_dir + '/' + file)
-                break
-
-    ret_files = sorted(set(out_files))
-    # print img_files
-
-    return ret_files
-
-def writeFileList(list, filename):
-    with open(filename, 'w') as f:
-        for item in list:
-            #logging.debug(item)
-            f.write("%s\n" % item)
-
-
-def saveLabelFile(label, list, filename):
-    with open(filename, 'w') as f:
-        for item in list:
-            f.write("{} 0.0 0 0.0 {} {} {} {} 0.0 0.0 0.0 0.0 0.0 0.0 0.0\n".format(label, item[0],
-                                                                                    item[1], item[2],
-                                                                                    item[3]))
-def loadLabels(label_file, height, width):
-
-    label_data = []
-    with open(label_file) as reader:
-        line = reader.readline()
-        labels = line.split(' ')
-
-        width_2 = float(labels[3]) / 2.0
-        height_2 = float(labels[4]) / 2.0
-
-        left = float(labels[1]) - width_2
-        top = float(labels[2]) - height_2
-        right = left + float(labels[3])
-        bottom = top + float(labels[4])
-
-        new_labels = [left, top, right, bottom]
-
-        label_data.append(new_labels)
-
-    return label_data
-
-def rotate(origin, point, angle_deg):
-    """
-    Rotate a point counterclockwise by a given angle around a given origin.
-
-    The angle should be given in radians.
-    """
-    angle = math.radians(angle_deg)
-
-    ox, oy = origin
-    px, py = point
-
-    qx = ox + math.cos(angle) * (px - ox) - math.sin(angle) * (py - oy)
-    qy = oy + math.sin(angle) * (px - ox) + math.cos(angle) * (py - oy)
-    return qx, qy
 
 def processArgs():
     """ Processes command line arguments     """
@@ -183,8 +28,8 @@ def processArgs():
                         help='Data dir containing paste images.')
     parser.add_argument('--save_dir', type=str, required=True,
                         help='dir where data will be generated.')
-    parser.add_argument('--paste_label_dir', type=str, required=True,
-                        help='dir where paste labels are stored.')
+    parser.add_argument('--paste_label_json', type=str, required=True,
+                        help='paste label json file.')
     parser.add_argument('--min_paste_dim_size', type=int, default=300,
                         help='minimum size of any dimension of pasted image.')
     parser.add_argument('--max_paste_dim_size', type=int, default=800,
@@ -214,7 +59,7 @@ class DetectNetDataGenerator ():
 
         self.canvas_image_dir = args.canvas_image_dir
         self.paste_image_dir = args.paste_image_dir
-        self.paste_label_dir = args.paste_label_dir
+        self.paste_label_json = args.paste_label_json
         self.save_dir = args.save_dir
         self.min_paste_dim_size = args.min_paste_dim_size
         self.max_paste_dim_size = args.max_paste_dim_size
@@ -236,6 +81,8 @@ class DetectNetDataGenerator ():
 
         self.all_paste_files_used = False
 
+        self.generate_masks = True
+
     def initialize(self):
         """
         Intialize a generic detectnet data generator class. It finds the filenames for canvas and paste images, and
@@ -249,8 +96,14 @@ class DetectNetDataGenerator ():
         if not os.path.exists(self.paste_image_dir):
             raise RuntimeError("Paste image directory does not exist: {}".format(self.paste_image_dir))
 
-        if not os.path.exists(self.paste_label_dir):
-            raise RuntimeError("Paste label directory does not exist: {}".format(self.paste_label_dir))
+        if not os.path.exists(self.paste_label_json):
+            raise RuntimeError("Paste label json file does not exist: {}".format(self.paste_label_json))
+
+        with open(self.paste_label_json, "r") as read_file:
+            self.paste_labels = json.load(read_file)
+
+        if len(self.paste_labels) <= 0:
+            raise RuntimeError("Paste labels were empty.")
 
         if os.path.exists(self.save_dir):
             shutil.rmtree(self.save_dir)
@@ -276,20 +129,16 @@ class DetectNetDataGenerator ():
         self.val_label_dir = self.save_dir + "/training_data/val/label"
         os.mkdir(self.val_label_dir)
 
-        canvas_img_files = findFilesOfType(self.canvas_image_dir, ['png', 'jpg', 'jpeg'])
-        paste_img_files = findFilesOfType(self.paste_image_dir, ['png', 'jpg', 'jpeg'])
+        canvas_img_files = utils.findFilesOfType(self.canvas_image_dir, ['png', 'jpg', 'jpeg'])
 
         if len(canvas_img_files) <= 0:
             raise RuntimeError("No canvas image files were found")
 
-        if len(paste_img_files) <= 0:
-            raise RuntimeError("No pate image files were found")
-
         np.random.shuffle(canvas_img_files)
-        np.random.shuffle(paste_img_files)
+        np.random.shuffle(self.paste_labels)
 
         canvas_val_count = int(len(canvas_img_files) * self.percent_for_val)
-        paste_val_count = int(len(paste_img_files) * self.percent_for_val)
+        paste_val_count = int(len(self.paste_labels) * self.percent_for_val)
 
         if canvas_val_count <= 0:
             canvas_val_count = 1
@@ -306,26 +155,15 @@ class DetectNetDataGenerator ():
         if len(canvas_img_files) != (c_t_c + c_v_c):
             raise RuntimeError("Mismatch in train/val canvas image split.")
 
-        self.paste_train_img_files = paste_img_files[:-paste_val_count]
-        self.paste_val_img_files = paste_img_files[(len(paste_img_files)-paste_val_count):]
+        self.paste_train_img_files = self.paste_labels[:-paste_val_count]
+        self.paste_val_img_files = self.paste_labels[(len(self.paste_labels)-paste_val_count):]
 
         p_t_c = len(self.paste_train_img_files)
         p_v_c = len(self.paste_val_img_files)
 
-        if len(paste_img_files) != (p_t_c + p_v_c):
+        if len(self.paste_labels) != (p_t_c + p_v_c):
             raise RuntimeError("Mismatch in train/val paste image split.")
 
-        filename = self.save_dir + "/canvas_train_images.csv"
-        writeFileList(self.canvas_train_img_files, filename)
-
-        filename = self.save_dir + "/canvas_val_images.csv"
-        writeFileList(self.canvas_val_img_files, filename)
-
-        filename = self.save_dir + "/paste_train_images.csv"
-        writeFileList(self.paste_train_img_files, filename)
-
-        filename = self.save_dir + "/paste_val_images.csv"
-        writeFileList(self.paste_val_img_files, filename)
 
     def loadPasteImage(self, filename, cut_height=0):
         """ Loads a paste image and mask.
@@ -335,8 +173,7 @@ class DetectNetDataGenerator ():
         """
         # paste_img_in = misc.imread(filename)
         paste_img_in = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
-
-        # showAndWait('paste_img_in', paste_img_in)
+        # utils.showAndWait('paste_img_in', paste_img_in)
 
         if paste_img_in.shape[2] < 4:
             paste_img = paste_img_in
@@ -354,13 +191,13 @@ class DetectNetDataGenerator ():
         else:
             raise RuntimeError("Invalid number of paste bitmap layers for {}".format(filename))
 
-        # showAndWait('paste_img', paste_img)
-        # showAndWait('paste_img_mask', paste_img_mask)
+        # utils.showAndWait('paste_img', paste_img)
+        # utils.showAndWait('paste_img_mask', paste_img_mask)
 
         if cut_height > 0:
             paste_img = paste_img[:-cut_height, :, :]
 
-        # showAndWait('paste_img', paste_img)
+        # utils.showAndWait('paste_img', paste_img)
 
         return paste_img, paste_img_mask
 
@@ -398,8 +235,12 @@ class DetectNetDataGenerator ():
             return -1, -1, last_x
 
         range_y = max((canvas_height - paste_height), max_paste_y)
+        range_x = min((canvas_width - (last_x + paste_width)), max_paste_x)
 
-        x = np.random.randint(0, max_paste_x)
+        if range_x <= 0 or range_y <= 0:
+            return -1, -1, last_x
+
+        x = np.random.randint(0, range_x)
         y = np.random.randint(0, range_y)
 
         paste_x = last_x + x
@@ -416,15 +257,22 @@ class DetectNetDataGenerator ():
             logging.info("Rotating by 90.")
             rotate_deg = 90
 
-        rotated_paste_img, = rotateImg(paste_img, rotate_deg)
+        rotated_paste_img, = utils.rotateImg(paste_img, rotate_deg)
 
         new_labels = []
         for l in labels:
-            new_right = rotate([0.0, 0.0], l[0], rotate_deg)
-            new_top = rotate([0.0, 0.0], l[1], rotate_deg)
-            new_left = rotate([0.0, 0.0], l[2], rotate_deg)
-            new_bottom = rotate([0.0, 0.0], l[3], rotate_deg)
-            new_labels.append([new_right, new_top, new_left, new_bottom])
+            new_right = utils.rotate([0.0, 0.0], l['x'], rotate_deg)
+            new_top = utils.rotate([0.0, 0.0], l['y'], rotate_deg)
+            new_left = utils.rotate([0.0, 0.0], l['x']+l['width'], rotate_deg)
+            new_bottom = utils.rotate([0.0, 0.0], l['y']+l['height'], rotate_deg)
+
+            new_l = l.copy()
+            new_l['x'] = new_right
+            new_l['y'] = new_top
+            new_l['width'] = new_left - new_right
+            new_l['height'] = new_bottom - new_top
+
+            new_labels.append(new_l)
             self.printLabelDims(new_labels)
 
         return rotated_paste_img, new_labels
@@ -433,7 +281,13 @@ class DetectNetDataGenerator ():
 
         new_labels = []
         for l in labels:
-            new_labels.append([paste_width-l[2], l[1], paste_width-l[0], l[3]])
+            # new_labels.append([paste_width - l[2], l[1], paste_width - l[0], l[3]])
+
+            new_l = l.copy()
+            new_l['x'] = paste_width - (l['x'] + l['width'])
+            new_labels.append(new_l)
+
+            #new_labels.append([paste_width-l[2], l[1], paste_width-l[0], l[3]])
 
         self.printLabelDims(new_labels)
 
@@ -443,7 +297,10 @@ class DetectNetDataGenerator ():
 
         new_labels = []
         for l in labels:
-            new_labels.append([x+l[0], y+l[1], x+l[2], y+l[3]])
+            new_l = l.copy()
+            new_l['x'] = x + l['x']
+            new_l['y'] = y + l['y']
+            new_labels.append(new_l)
 
         self.printLabelDims(new_labels)
 
@@ -452,17 +309,18 @@ class DetectNetDataGenerator ():
     def printLabelDims(self, labels):
 
         for l in labels:
-            logging.info("    [{}, {}, {}, {}], w: {}, h: {}".format(l[0], l[1], l[2], l[3],
-                                                                     (l[2]-l[0]),
-                                                                     (l[3]-l[1])))
+            logging.info("    x: {0:.2f}, y: {0:.2f}, w: {0:.2f}, h: {0:.2f}".format(l['x'], l['y'], l['width'], l['height']))
 
     def drawLabels(self, img, labels):
 
         for l in labels:
-            top_left = (int(l[0]), int(l[1]))
-            top_right = (int(l[2]), int(l[1]))
-            bottom_right = (int(l[2]), int(l[3]))
-            bottom_left =(int(l[0]), int(l[3]))
+            x_max = l['x'] + l['width']
+            y_max = l['y'] + l['height']
+
+            top_left = (int(l['x']), int(l['y']))
+            top_right = (int(x_max), int(l['y']))
+            bottom_right = (int(x_max), int(y_max))
+            bottom_left =(int(l['x']), int(y_max))
 
             img = cv2.line(img, top_left, top_right, color=(0, 0, 255), thickness=3)
             img = cv2.line(img, top_right, bottom_right, color=(0, 0, 255), thickness=3)
@@ -471,8 +329,44 @@ class DetectNetDataGenerator ():
 
         return img
 
+    def loadMaskImage(self, paste_img_file, cut_height=0):
+
+        # remove the jpg extension and add on correct label ending
+        mask_file = paste_img_file[:-4] + '_label.png'
+
+        if not os.path.exists(mask_file):
+            raise RuntimeError("mask_file does not exist: {}. Exiting".format(mask_file))
+
+        mask_img_in = cv2.imread(mask_file, cv2.IMREAD_UNCHANGED)
+
+        if cut_height > 0:
+            mask_img_in = mask_img_in[:-cut_height, :, :]
+
+        # Find all places where pixels are red and white.
+        red_mask = cv2.inRange(mask_img_in, np.array([0, 0, 253]), np.array([5, 5, 255]))
+        white_mask = cv2.inRange(mask_img_in, np.array([253, 253, 253]), np.array([255, 255, 255]))
+
+        # Find all places where it is not 0.
+        red_where = np.array(np.where(red_mask))
+        white_where = np.array(np.where(white_mask))
+
+        # Create a new image of same size with only one bit plane and all zeros
+        label_img = np.zeros([mask_img_in.shape[0], mask_img_in.shape[1]], dtype=np.uint8)
+
+        # Set all red and white places to 1 and 255
+        label_img[red_where[0,:], red_where[1,:]] = 1
+        if len(white_where) > 0:
+            label_img[white_where[0,:], white_where[1,:]] = 255
+
+        if mask_img_in.shape[0] != label_img.shape[0] or \
+           mask_img_in.shape[1] != label_img.shape[1]:
+            raise RuntimeError("Mismatch between train and label out shapes. {}".format(paste_img_file))
+
+        return label_img
+
     def addPastedImages(self, canvas_img_file, canvas_img, paste_img_files,
-                        save_img_dir, save_label_dir, canvas_idx, tile_idx):
+                        save_img_dir, save_label_dir, canvas_idx, tile_idx,
+                        out_labels):
         """
         Adds paste images to the canvas file and saves it and the labels.
         :param canvas_img_file: canvas image filename to split
@@ -488,30 +382,43 @@ class DetectNetDataGenerator ():
         canvas_height = canvas_img.shape[0]
         all_labels = []
 
+        if self.generate_masks:
+            canvas_mask_img = np.zeros([canvas_height, canvas_width], dtype=np.uint8)
+        else:
+            canvas_mask_img = None
+
         if canvas_height != self.final_img_height or canvas_width != self.final_img_width:
             logging.error("The canvas height for a paste add does not match the final image dimensions. Skipping image.")
             return
 
-        max_paste_x = 10
-        max_paste_y = 10
+        max_paste_x = 100
+        max_paste_y = 100
         last_x = 0
+
+        labels = []
 
         done = False
         while not done:
             try:
                 paste_img_file_idx = self.paste_image_idx
-                # paste_img_file  = '/media/dcofer/Ubuntu_Data/drone-net/images/kuala-lumpur-malaysia-september-6-260nw-714548464.jpg'
-                paste_img_file = paste_img_files[paste_img_file_idx]
+                # paste_img_file  = '/media/dcofer/Ubuntu_Data/drone-net/images_labeled/dji-mavic-pro-drone-riga-260nw-533974795.jpg'
+                paste_label = paste_img_files[paste_img_file_idx]
+                paste_img_file = self.paste_image_dir + '/' + paste_label['filename']
+
                 logging.info("  Pasting in {}".format(paste_img_file))
                 logging.info("    Paste Image Idx {}".format(paste_img_file_idx))
                 paste_img, paste_mask = self.loadPasteImage(paste_img_file, cut_height=20)
-                # showAndWait('paste_img', paste_img)
+                # utils.showAndWait('paste_img', paste_img)
+
+                if self.generate_masks:
+                    mask_img = self.loadMaskImage(paste_img_file, cut_height=20)
+                else:
+                    mask_img = None
 
                 # Try to load the label file for this image.
                 orig_filename = os.path.basename(paste_img_file)
                 orig_basename = os.path.splitext(orig_filename)[0]
-                label_file = self.paste_label_dir + '/' + orig_basename + '.txt'
-                labels = loadLabels(label_file, paste_img.shape[0], paste_img.shape[1])
+                labels = paste_label['annotations']
 
                 paste_width = paste_img.shape[1]
                 paste_height = paste_img.shape[0]
@@ -539,6 +446,8 @@ class DetectNetDataGenerator ():
                     if flip_val < 50:
                         logging.info("    flip_val: {}. Flipping image.".format(flip_val))
                         paste_img = np.fliplr(paste_img)
+                        if mask_img is not None:
+                            mask_img = np.fliplr(mask_img)
                         labels = self.flipLabels(labels, paste_width)
                     else:
                         logging.info("    flip_val: {}. Leaving image unflipped".format(flip_val))
@@ -546,7 +455,12 @@ class DetectNetDataGenerator ():
                     # Now put them back into the canvas
                     canvas_img[paste_y:(paste_y + paste_height),
                                paste_x:(paste_x + paste_width)] = paste_img
-                    # showAndWait('canvas_img', canvas_img)
+
+                    if not canvas_mask_img is None and not mask_img is None:
+                        canvas_mask_img[paste_y:(paste_y + paste_height),
+                                        paste_x:(paste_x + paste_width)] = mask_img
+
+                    # utils.showAndWait('canvas_img', canvas_img)
 
                     labels = self.adjustLabels(labels, paste_x, paste_y)
 
@@ -560,21 +474,39 @@ class DetectNetDataGenerator ():
                 done = True
                 logging.exception("There was an exception. Skipping image.")
 
-        # showAndWait('canvas_img', canvas_img)
+        # utils.showAndWait('canvas_img', canvas_img)
+
+        if len(labels) <= 0:
+            logging.warning("Labels for image were blank. Skipping.")
+            return
 
         canvas_img = np.array(canvas_img)
-        canvas_img = self.drawLabels(canvas_img, all_labels)
+        #canvas_img = self.drawLabels(canvas_img, all_labels)
 
-        showAndWait('canvas_img', canvas_img)
+        # utils.showAndWait('canvas_img', canvas_img)
 
-        save_img_file = save_img_dir + '/{}_{}.png'.format(canvas_idx, tile_idx)
-        cv2.imwrite(save_img_file, canvas_img)
+        save_img_filename = '{}_{}.png'.format(canvas_idx, tile_idx)
+        save_img_file = save_img_dir + '/{}'.format(save_img_filename)
         logging.info("saving image: {}".format(save_img_file))
+        cv2.imwrite(save_img_file, canvas_img)
         #misc.imsave(save_file, canvas_img)
 
         save_label_file = save_label_dir + '/{}_{}.txt'.format(canvas_idx, tile_idx)
-        saveLabelFile('Car', labels, save_label_file)
         logging.info("saving lable: {}".format(save_label_file))
+        utils.saveDetectNetLabelFile('Car', labels, save_label_file)
+
+        if self.generate_masks and canvas_mask_img is not None:
+            save_mask_file = save_label_dir + '/{}'.format(save_img_filename)
+            logging.info("saving mask: {}".format(save_mask_file))
+            #utils.saveIndexImage(save_mask_file, canvas_mask_img)
+            cv2.imwrite(save_mask_file, canvas_mask_img)
+
+
+        json_label = {"class": "image",
+                      "filename": save_img_filename,
+                      "annotations": all_labels}
+        out_labels.append(json_label)
+
 
     def getForcedRandomRotationValue(self):
 
@@ -591,9 +523,9 @@ class DetectNetDataGenerator ():
 
         logging.info("  rotate_deg: {}.".format(rotate_deg))
         max_buff_dim = int(max(canvas_img.shape[0], canvas_img.shape[1]) * 2.0)
-        rotated_canvas_img, rotated_canvas_mask = rotateImg(canvas_img, rotate_deg,
-                                                            mask_in=None)
-        # showAndWait('rotated_paste_img', rotated_canvas_img)
+        rotated_canvas_img, rotated_canvas_mask = utils.rotateImg(canvas_img, rotate_deg,
+                                                                  mask_in=None)
+        # utils.showAndWait('rotated_paste_img', rotated_canvas_img)
 
         if rotated_canvas_img.shape[0] != self.final_img_height or \
                 rotated_canvas_img.shape[1] != self.final_img_width:
@@ -619,7 +551,8 @@ class DetectNetDataGenerator ():
 
     def splitCanvasIntoTiles(self, canvas_img_file, canvas_img, paste_img_files,
                              save_img_dir, save_label_dir,
-                             width_multiple, height_multiple, canvas_idx):
+                             width_multiple, height_multiple,
+                             canvas_idx, out_labels):
         """
         Splits the canvas image into multiple image tiles and adds pasted images to it.
         :param canvas_img_file: canvas image filename to split
@@ -669,7 +602,7 @@ class DetectNetDataGenerator ():
                     rotated_canvas_img = flipped_canvas_img
 
                 self.addPastedImages(canvas_img_file, rotated_canvas_img, paste_img_files,
-                                     save_img_dir, save_label_dir, canvas_idx, tile_idx)
+                                     save_img_dir, save_label_dir, canvas_idx, tile_idx, out_labels)
                 tile_idx += 1
 
         return tile_idx
@@ -684,15 +617,16 @@ class DetectNetDataGenerator ():
         :param save_label_dir: save label directory.
         """
 
+        out_labels = []
+
         # Go through each canvas image and generate a set of images from it depending on its size.
-        self.paste_image_idx = 476
         canvas_idx = 1
         while not self.all_paste_files_used:
             for canvas_img_file in canvas_img_files:
                 # canvas_img_file = '/media/dcofer/Ubuntu_Data/drone_images/landscapes/vlcsnap-2018-12-21-1.png'
                 # canvas_img_orig = misc.imread(canvas_img_file)
                 canvas_img_orig = cv2.imread(canvas_img_file)
-                # showAndWait('canvas_img_orig', canvas_img_orig)
+                # utils.showAndWait('canvas_img_orig', canvas_img_orig)
 
                 logging.info("Processing file {}. Shape {}".format(canvas_img_file, canvas_img_orig.shape))
 
@@ -718,7 +652,7 @@ class DetectNetDataGenerator ():
                     canvas_img = canvas_img_orig
 
                 canvas_img = img_as_ubyte(canvas_img.copy())
-                # showAndWait('canvas_img', canvas_img)
+                # utils.showAndWait('canvas_img', canvas_img)
                 # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/canvas_img.png', canvas_img)
 
                 # Now recompute the multiple after potential resizing
@@ -727,21 +661,27 @@ class DetectNetDataGenerator ():
 
                 tile_idx = self.splitCanvasIntoTiles(canvas_img_file, canvas_img, paste_img_files,
                                                      save_img_dir, save_label_dir,
-                                                     width_multiple, height_multiple, canvas_idx)
+                                                     width_multiple, height_multiple,
+                                                     canvas_idx, out_labels)
 
                 # Now resize the entire image into the final size and add paste images.
                 whole_canvas_img = img_as_ubyte(resize(canvas_img_orig, [self.final_img_height, self.final_img_width]))
 
-                # showAndWait('whole_canvas_img', whole_canvas_img)
+                # utils.showAndWait('whole_canvas_img', whole_canvas_img)
                 flipped_canvas_img = np.fliplr(whole_canvas_img)
-                # showAndWait('flipped_canvas_img', flipped_canvas_img)
+                # utils.showAndWait('flipped_canvas_img', flipped_canvas_img)
                 rotated_canvas_img = self.rotateCanvasImage(flipped_canvas_img)
 
                 self.addPastedImages(canvas_img_file, rotated_canvas_img, paste_img_files, save_img_dir,
-                                     save_label_dir, canvas_idx, tile_idx+1)
+                                     save_label_dir, canvas_idx, tile_idx+1, out_labels)
                 canvas_idx += 1
 
                 if self.all_paste_files_used:
+                    json_txt = json.dumps(out_labels)
+                    out_file = save_img_dir + "/output_labels.json"
+                    with open(out_file, 'w') as f:
+                        f.write(json_txt)
+
                     break
 
     def generate(self):
@@ -768,7 +708,7 @@ class DetectNetDataGenerator ():
         logging.info("Finished generating images.")
 
 if __name__ == "__main__":
-    setupLogging()
+    utils.setupLogging('detectnet_data_gen')
 
     args = processArgs()
     gen = DetectNetDataGenerator(args)

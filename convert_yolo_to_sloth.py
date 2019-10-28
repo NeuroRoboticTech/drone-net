@@ -28,7 +28,7 @@ if __name__ == "__main__":
 
     args = processArgs()
 
-    img_files = utils.findFilesOfType(args.image_dir, ['png', 'jpg', 'jpeg'])
+    img_files = utils.findFilesOfType(args.image_dir, ['jpg', 'jpeg']) # 'png',
 
     json_labels = []
 

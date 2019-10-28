@@ -7,6 +7,7 @@ import numpy as np
 import cv2
 import scipy.misc as misc
 import math
+from PIL import Image
 
 def setupLogging(prefix):
     logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
@@ -124,10 +125,13 @@ def writeFileList(list, filename):
 
 def saveDetectNetLabelFile(label, list, filename):
     with open(filename, 'w') as f:
-        for item in list:
-            f.write("{} 0.0 0 0.0 {} {} {} {} 0.0 0.0 0.0 0.0 0.0 0.0 0.0\n".format(label, item[0],
-                                                                                    item[1], item[2],
-                                                                                    item[3]))
+        for l in list:
+            x_max = l['x'] + l['width']
+            y_max = l['y'] + l['height']
+
+            f.write("{} 0.0 0 0.0 {} {} {} {} 0.0 0.0 0.0 0.0 0.0 0.0 0.0\n".format(label, l['x'],
+                                                                                    l['y'], x_max,
+                                                                                    y_max))
 def loadYoloLabels(label_file):
 
     label_data = []
@@ -164,3 +168,75 @@ def rotate(origin, point, angle_deg):
     qy = oy + math.sin(angle) * (px - ox) + math.cos(angle) * (py - oy)
     return qx, qy
 
+
+def bitget(byteval, idx):
+    return ((byteval & (1 << idx)) != 0)
+
+def color_map(N=256, normalized=False):
+    cmap = []
+    for i in range(N):
+        r = g = b = 0
+        c = i
+        for j in range(8):
+            r = r | (bitget(c, 0) << 7-j)
+            g = g | (bitget(c, 1) << 7-j)
+            b = b | (bitget(c, 2) << 7-j)
+            c = c >> 3
+
+        cmap.append(r)
+        cmap.append(g)
+        cmap.append(b)
+
+    return cmap
+
+
+def quantizetopalette(silf, palette, dither=False):
+    """Convert an RGB or L mode image to use a given P image's palette."""
+
+    silf.load()
+
+    # use palette from reference image
+    palette.load()
+    if palette.mode != "P":
+        raise ValueError("bad mode for palette image")
+    if silf.mode != "RGB" and silf.mode != "L":
+        raise ValueError(
+            "only RGB or L mode images can be quantized to a palette"
+            )
+    im = silf.im.convert("P", 1 if dither else 0, palette.im)
+    # the 0 above means turn OFF dithering
+    return silf._makeself(im)
+
+
+def savePascalColorMap(file_name):
+    cm = color_map()
+
+    # print cm
+    cm_file = open(file_name, "w")
+    color_idx = 0
+    for c in cm:
+        cm_file.write(str(c))
+
+        color_idx = color_idx + 1
+        if color_idx >= 3:
+            color_idx = 0
+            cm_file.write("\n")
+        else:
+            cm_file.write(" ")
+
+    cm_file.close()
+
+
+def saveIndexImage(file_name, img):
+    cmap = color_map()
+
+    rgb_im = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
+    # pil_im = Image.open("/media/dcofer/Ubuntu_Data/train_data/orig_labels/P1040599_0_0.png")
+    pil_im = Image.fromarray(rgb_im)
+
+    palimage = Image.new('P', pil_im.size)
+    palimage.putpalette(cmap)
+    newimage = quantizetopalette(pil_im, palimage, dither=False)
+
+    newimage.save(file_name)
+    # print("Saved mask file: " + file_name)
