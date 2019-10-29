@@ -112,7 +112,7 @@ class SimImageDataGen():
         # cv2.imwrite(self.save_dir + '/final_mask.png', final_mask)
 
         # Save the new label image.
-        label_out = self.save_dir + '/' + base_name + '_label_.png'
+        label_out = self.save_dir + '/' + base_name + '_label.png'
         logging.info("saving label file {}".format(label_out))
         cv2.imwrite(label_out, final_mask)
 

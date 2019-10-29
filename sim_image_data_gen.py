@@ -25,19 +25,21 @@ def processArgs():
                         help='Data dir containing canvas images.')
     parser.add_argument('--paste_image_dir', type=str, required=True,
                         help='Data dir containing paste images.')
+    parser.add_argument('--paste_label_dir', type=str, required=True,
+                        help='Data dir containing paste labels.')
     parser.add_argument('--save_image_dir', type=str, required=True,
                         help='Data dir where sim images will be generated.')
-    parser.add_argument('--min_paste_dim_size', type=int, default=300,
+    parser.add_argument('--min_paste_dim_size', type=int, default=40,
                         help='minimum size of any dimension of pasted image.')
-    parser.add_argument('--max_paste_dim_size', type=int, default=800,
+    parser.add_argument('--max_paste_dim_size', type=int, default=400,
                         help='maximum size of any dimension of pasted image.')
     parser.add_argument('--max_paste_rotation', type=int, default=45,
                         help='maximum rotation that can be randomly added to pasted image.')
     parser.add_argument('--max_canvas_rotation', type=int, default=5,
                         help='maximum rotation that can be randomly added to canvas image.')
-    parser.add_argument('--final_img_width', type=int, default=1248,
+    parser.add_argument('--final_img_width', type=int, default=700,
                         help='height of the final produced image.')
-    parser.add_argument('--final_img_height', type=int, default=384,
+    parser.add_argument('--final_img_height', type=int, default=700,
                         help='width of the final produced image.')
     parser.add_argument('--min_pasted_per_canvas', type=int, default=1,
                         help='minimum number of pasted images per canvas.')
@@ -59,6 +61,7 @@ class SimImageDataGen():
 
         self.canvas_image_dir = args.canvas_image_dir
         self.paste_image_dir = args.paste_image_dir
+        self.paste_label_dir = args.paste_label_dir
         self.save_dir = args.save_image_dir
         self.min_paste_dim_size = args.min_paste_dim_size
         self.max_paste_dim_size = args.max_paste_dim_size
@@ -91,6 +94,9 @@ class SimImageDataGen():
 
         if not os.path.exists(self.paste_image_dir):
             raise RuntimeError("Paste image directory does not exist: {}".format(self.paste_image_dir))
+
+        if not os.path.exists(self.paste_label_dir):
+            raise RuntimeError("Paste label directory does not exist: {}".format(self.paste_label_dir))
 
         if os.path.exists(self.save_dir):
             shutil.rmtree(self.save_dir)
@@ -132,24 +138,15 @@ class SimImageDataGen():
 
         if paste_img_in.shape[2] < 4:
             paste_img = paste_img_in
-            ret, paste_img_mask = cv2.threshold(paste_img, 2, 255, cv2.THRESH_BINARY)
-
-            paste_img_mask = paste_img_mask[:, :, 0]
         elif paste_img_in.shape[2] == 4:
             paste_img = paste_img_in[:, :, 0:3]
-            paste_img_mask = paste_img_in[:, :, 3]
-
-            ret, paste_img_mask = cv2.threshold(paste_img_mask, 100, 255, cv2.THRESH_BINARY)
-
-            # Now black out everything on the image that is not in the mask
-            paste_img = cv2.bitwise_and(paste_img, paste_img, mask=paste_img_mask)
         else:
             raise RuntimeError("Invalid number of paste bitmap layers for {}".format(filename))
 
         # showAndWait('paste_img', paste_img)
         # showAndWait('paste_img_mask', paste_img_mask)
 
-        return paste_img, paste_img_mask
+        return paste_img
 
     def getNextPastedImageIndex(self, paste_img_files):
         """ Gets the index of the next paste image so we go through them all.
@@ -277,7 +274,7 @@ class SimImageDataGen():
         return paste_x, paste_y
 
     def addPastedImages(self, canvas_img_file, canvas_img, paste_img_files,
-                        save_img_dir, save_label_dir, canvas_idx, tile_idx):
+                        paste_label_dir, save_img_dir, save_label_dir, canvas_idx, tile_idx):
         """
         Adds paste images to the canvas file and saves it and the labels.
         :param canvas_img_file: canvas image filename to split
@@ -298,20 +295,32 @@ class SimImageDataGen():
             logging.error("The canvas height for a paste add does not match the final image dimensions. Skipping image.")
             return
 
+        canvas_label = np.zeros([canvas_height, canvas_width, 3], dtype=np.uint8)
+
         logging.info("num_pastes: {}".format(num_pastes))
 
         for past_idx in range(num_pastes):
             paste_img_file_idx = self.getNextPastedImageIndex(paste_img_files)
-            # paste_img_file  = '/media/dcofer/Ubuntu_Data/drone_images/drones/255.png'
-            paste_img_file = paste_img_files[paste_img_file_idx]
+            paste_img_file  = '/media/dcofer/Ubuntu_Data/drone_images/drones/239.png'
+            # paste_img_file = paste_img_files[paste_img_file_idx]
+            paste_filename = os.path.basename(paste_img_file)
+            paste_basename = os.path.splitext(paste_filename)[0]
+
             logging.info("  Pasting in {}".format(paste_img_file))
             logging.info("    Paste Image Idx {}".format(paste_img_file_idx))
-            paste_img, paste_mask = self.loadPasteImage(paste_img_file)
+            paste_img = self.loadPasteImage(paste_img_file)
+
+            paste_label_file = paste_label_dir + '/' + paste_basename + '_label.png'
+            paste_label_img = cv2.imread(paste_label_file, cv2.IMREAD_UNCHANGED)
+            paste_label_img = cv2.cvtColor(paste_label_img, cv2.COLOR_BGR2GRAY)
 
             paste_width = paste_img.shape[1]
             paste_height = paste_img.shape[0]
             logging.info("    paste_width: {}".format(paste_width))
             logging.info("    paste_height: {}".format(paste_height))
+
+            if paste_label_img.shape[0] != paste_height or paste_label_img.shape[1] != paste_width:
+                raise RuntimeError("Paste label dims do not match paste image.")
 
             new_paste_width, new_paste_height = self.calcNewPasteDims(paste_width, paste_height)
 
@@ -321,11 +330,11 @@ class SimImageDataGen():
             if paste_width != new_paste_width or paste_height != new_paste_height:
                 sized_paste_img = cv2.resize(paste_img, dsize=(new_paste_width, new_paste_height),
                                              interpolation=cv2.INTER_AREA)
-                sized_paste_mask = cv2.resize(paste_mask, dsize=(new_paste_width, new_paste_height),
+                sized_paste_mask = cv2.resize(paste_label_img, dsize=(new_paste_width, new_paste_height),
                                               interpolation=cv2.INTER_AREA)
             else:
                 sized_paste_img = paste_img
-                sized_paste_mask = paste_mask
+                sized_paste_mask = paste_label_img
 
             # showAndWait('sized_paste_img', sized_paste_img)
             # showAndWait('sized_paste_mask', sized_paste_mask)
@@ -342,8 +351,8 @@ class SimImageDataGen():
 
             rotate_deg = int(np.random.uniform(-self.max_paste_rotation, self.max_paste_rotation))
             logging.info("    rotate_deg: {}.".format(rotate_deg))
-            rotated_paste_img, rotated_paste_mask = utils.rotateImg(flipped_paste_img, rotate_deg,
-                                                                    mask_in=flipped_paste_mask)
+            rotated_paste_img, m  = utils.rotateImg(flipped_paste_img, rotate_deg)
+            rotated_paste_mask, m = utils.rotateImg(flipped_paste_mask, rotate_deg)
             # showAndWait('rotated_paste_img', rotated_paste_img)
             # showAndWait('rotated_paste_mask', rotated_paste_mask)
 
@@ -389,7 +398,16 @@ class SimImageDataGen():
             # Now put them back into the canvas
             canvas_img[paste_y:(paste_y + paste_height),
                        paste_x:(paste_x + paste_width)] = merged_roi
-            # showAndWait('canvas_img', canvas_img)
+
+            utils.showAndWait('canvas_img', canvas_img)
+
+            # Now put the label into the canvas
+            ret, label_mask = cv2.threshold(rotated_paste_mask, 5, 255, cv2.THRESH_BINARY)
+
+            canvas_label[paste_y:(paste_y + label_mask.shape[0]),
+                         paste_x:(paste_x + label_mask.shape[1]), 2] = label_mask
+
+            utils.showAndWait('canvas_label', canvas_label)
 
             self.canvas_paste_links.append([canvas_idx, tile_idx, canvas_img_file, paste_img_file,
                                             paste_x, paste_y, paste_width, paste_height])
@@ -405,9 +423,13 @@ class SimImageDataGen():
         logging.info("saving image: {}".format(save_img_file))
         #misc.imsave(save_file, canvas_img)
 
-        save_label_file = save_label_dir + '/{}_{}.txt'.format(canvas_idx, tile_idx)
-        utils.saveDetectNetLabelFile('Car', labels, save_label_file)
-        logging.info("saving lable: {}".format(save_label_file))
+        # save_label_file = save_label_dir + '/{}_{}.txt'.format(canvas_idx, tile_idx)
+        # utils.saveDetectNetLabelFile('Car', labels, save_label_file)
+        # logging.info("saving lable: {}".format(save_label_file))
+
+        save_label_file = save_label_dir + '/{}_{}_label.png'.format(canvas_idx, tile_idx)
+        cv2.imwrite(save_label_file, canvas_label)
+        logging.info("saving lable image: {}".format(save_label_file))
 
     def getForcedRandomRotationValue(self):
 
@@ -451,7 +473,7 @@ class SimImageDataGen():
         return flipped_canvas_img
 
     def splitCanvasIntoTiles(self, canvas_img_file, canvas_img, paste_img_files,
-                             save_img_dir, save_label_dir,
+                             paste_label_dir, save_img_dir, save_label_dir,
                              width_multiple, height_multiple, canvas_idx):
         """
         Splits the canvas image into multiple image tiles and adds pasted images to it.
@@ -502,12 +524,13 @@ class SimImageDataGen():
                     rotated_canvas_img = flipped_canvas_img
 
                 self.addPastedImages(canvas_img_file, rotated_canvas_img, paste_img_files,
-                                     save_img_dir, save_label_dir, canvas_idx, tile_idx)
+                                     paste_label_dir, save_img_dir, save_label_dir, canvas_idx, tile_idx)
                 tile_idx += 1
 
         return tile_idx
 
-    def generateImages(self, canvas_img_files, paste_img_files, save_img_dir, save_label_dir):
+    def generateImages(self, canvas_img_files, paste_img_files,
+                       paste_label_dir, save_img_dir, save_label_dir):
         """
         Intialize a generic detectnet data generator class. It finds the filenames for canvas and paste images, and
         labels, and splits them into train and validation spilts.
@@ -558,7 +581,7 @@ class SimImageDataGen():
             height_multiple = float(canvas_img.shape[0])/self.final_img_height
 
             tile_idx = self.splitCanvasIntoTiles(canvas_img_file, canvas_img, paste_img_files,
-                                                 save_img_dir, save_label_dir,
+                                                 paste_label_dir, save_img_dir, save_label_dir,
                                                  width_multiple, height_multiple, canvas_idx)
 
             # Now resize the entire image into the final size and add paste images.
@@ -569,7 +592,8 @@ class SimImageDataGen():
             # showAndWait('flipped_canvas_img', flipped_canvas_img)
             rotated_canvas_img = self.rotateCanvasImage(flipped_canvas_img)
 
-            self.addPastedImages(canvas_img_file, rotated_canvas_img, paste_img_files, save_img_dir,
+            self.addPastedImages(canvas_img_file, rotated_canvas_img, paste_img_files,
+                                 paste_label_dir, save_img_dir,
                                  save_label_dir, canvas_idx, tile_idx+1)
             canvas_idx += 1
 
@@ -581,10 +605,11 @@ class SimImageDataGen():
         logging.info("Initializing image dataset generator ...")
 
         logging.info("Generating training images.")
-        self.generateImages(self.canvas_train_img_files,
-                             self.paste_train_img_files,
-                             self.train_img_dir,
-                             self.train_label_dir)
+        self.generateImages(self.canvas_img_files,
+                            self.paste_img_files,
+                            self.paste_label_dir,
+                            self.train_img_dir,
+                            self.train_label_dir)
 
 
         logging.info("Finished generating images.")

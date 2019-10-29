@@ -61,15 +61,15 @@ class SegmentDataGenerator ():
             # where creating the html folder inside this folder would periodically error out.
             time.sleep(0.1)
 
-        # Now create the other directories we will need.
-        os.mkdir(self.save_dir)
-
-        self.img_out_dir = self.save_dir + "/images"
-        os.mkdir(self.img_out_dir)
-
-        self.label_out_dir = self.save_dir + "/labels"
-        os.mkdir(self.label_out_dir)
-
+        # # Now create the other directories we will need.
+        # os.mkdir(self.save_dir)
+        #
+        # self.img_out_dir = self.save_dir + "/images"
+        # os.mkdir(self.img_out_dir)
+        #
+        # self.label_out_dir = self.save_dir + "/labels"
+        # os.mkdir(self.label_out_dir)
+        #
         self.label_files = utils.findFilesOfType(self.data_dir, ['_label.png'])
 
         if len(self.label_files) <= 0:
