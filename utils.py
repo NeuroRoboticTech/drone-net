@@ -32,14 +32,14 @@ def rotateImg(img, angle, mask_in=None):
     (h, w) = img.shape[:2]
 
     max_dim = int(max(h, w) * 2.0)
-    max_dim_2 = int(max_dim/2.0)
 
     # Get a blank array the max paste size
     if len(img.shape) > 2:
         buffer_roi = np.zeros([max_dim, max_dim, img.shape[2]], dtype=np.uint8)
-        buffer_roi_mask = np.zeros([max_dim, max_dim], dtype=np.uint8)
     else:
         buffer_roi = np.zeros([max_dim, max_dim], dtype=np.uint8)
+
+    if mask_in is not None:
         buffer_roi_mask = np.zeros([max_dim, max_dim], dtype=np.uint8)
 
     center_rotate_roi = int(max_dim / 2.0)
@@ -58,6 +58,8 @@ def rotateImg(img, angle, mask_in=None):
     # showAndWait('buffer_roi', buffer_roi)
 
     rotated = misc.imrotate(buffer_roi, angle)
+    if mask_in is not None:
+        rotated_mask = misc.imrotate(buffer_roi_mask, angle)
 
     if len(img.shape) > 2:
         paste_grey = cv2.cvtColor(rotated, cv2.COLOR_BGR2GRAY)
@@ -67,19 +69,23 @@ def rotateImg(img, angle, mask_in=None):
     # showAndWait('paste_grey', paste_grey)
     # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/paste_grey.png', paste_grey)
 
-    ret, rotated_mask = cv2.threshold(paste_grey, 5, 255, cv2.THRESH_BINARY)
+    ret, rotated_mask_img = cv2.threshold(paste_grey, 5, 255, cv2.THRESH_BINARY)
 
     # showAndWait('mask', rotated_mask)
     # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/rotated_mask.png', rotated_mask)
 
-    where = np.array(np.where(rotated_mask))
+    where = np.array(np.where(rotated_mask_img))
     # np.savetxt('/media/dcofer/Ubuntu_Data/drone_images/fuckhead.csv', np.transpose(where))
 
     x1, y1 = np.amin(where, axis=1)
     x2, y2 = np.amax(where, axis=1)
 
     out_image = rotated[x1:x2, y1:y2]
-    out_mask = rotated_mask[x1:x2, y1:y2]
+    if mask_in is not None:
+        out_mask = rotated_mask[x1:x2, y1:y2]
+        ret, out_mask = cv2.threshold(out_mask, 3, 255, cv2.THRESH_BINARY)
+    else:
+        out_mask = None
 
     # showAndWait('out_image', out_image)
     # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/out_image.png', out_image)

@@ -43,7 +43,7 @@ def processArgs():
                         help='width of the final produced image.')
     parser.add_argument('--min_pasted_per_canvas', type=int, default=1,
                         help='minimum number of pasted images per canvas.')
-    parser.add_argument('--max_pasted_per_canvas', type=int, default=2,
+    parser.add_argument('--max_pasted_per_canvas', type=int, default=4,
                         help='maximum number of pasted images per canvas.')
 
     args, unknown = parser.parse_known_args()
@@ -81,6 +81,7 @@ class SimImageDataGen():
         self.paste_img_files = []
 
         self.paste_image_idx = 0
+        self.all_paste_files_used = False
 
     def initialize(self):
         """
@@ -148,7 +149,7 @@ class SimImageDataGen():
 
         return paste_img
 
-    def getNextPastedImageIndex(self, paste_img_files):
+    def incrementNextPastedImageIndex(self, paste_img_files):
         """ Gets the index of the next paste image so we go through them all.
 
         :param paste_img_files: list of paste image files.
@@ -158,6 +159,7 @@ class SimImageDataGen():
         self.paste_image_idx += 1
         if self.paste_image_idx >= len(paste_img_files):
             self.paste_image_idx = 0
+            self.all_paste_files_used = True
 
         return self.paste_image_idx
 
@@ -264,12 +266,17 @@ class SimImageDataGen():
         overlapping = True
         paste_x = 0
         paste_y = 0
-        while overlapping:
+        count = 0
+        while overlapping and count < 15:
             paste_x = np.random.randint(0, canvas_width - paste_width)
             paste_y = np.random.randint(0, canvas_height - paste_height)
 
+            logging.info("{}, {}".format(paste_x, paste_y))
             if not self.overlapping(paste_x, paste_y, paste_width, paste_height, labels):
                 overlapping = False
+
+            count += 1
+            logging.info("overlaps: {}".format(count))
 
         return paste_x, paste_y
 
@@ -300,9 +307,9 @@ class SimImageDataGen():
         logging.info("num_pastes: {}".format(num_pastes))
 
         for past_idx in range(num_pastes):
-            paste_img_file_idx = self.getNextPastedImageIndex(paste_img_files)
-            paste_img_file  = '/media/dcofer/Ubuntu_Data/drone_images/drones/239.png'
-            # paste_img_file = paste_img_files[paste_img_file_idx]
+            paste_img_file_idx = self.paste_image_idx
+            # paste_img_file  = '/media/sf_vm_data/drone_images/drones/239.png'
+            paste_img_file = paste_img_files[paste_img_file_idx]
             paste_filename = os.path.basename(paste_img_file)
             paste_basename = os.path.splitext(paste_filename)[0]
 
@@ -351,8 +358,8 @@ class SimImageDataGen():
 
             rotate_deg = int(np.random.uniform(-self.max_paste_rotation, self.max_paste_rotation))
             logging.info("    rotate_deg: {}.".format(rotate_deg))
-            rotated_paste_img, m  = utils.rotateImg(flipped_paste_img, rotate_deg)
-            rotated_paste_mask, m = utils.rotateImg(flipped_paste_mask, rotate_deg)
+            rotated_paste_img, rotated_paste_mask  = utils.rotateImg(flipped_paste_img, rotate_deg,
+                                                                     mask_in=flipped_paste_mask)
             # showAndWait('rotated_paste_img', rotated_paste_img)
             # showAndWait('rotated_paste_mask', rotated_paste_mask)
 
@@ -361,6 +368,9 @@ class SimImageDataGen():
 
             paste_x, paste_y = self.getNonoverlappingPastePos(paste_width, paste_height,
                                                               canvas_width, canvas_height, labels)
+            if paste_x < 0 or paste_y < 0:
+                break
+
             # paste_x = 1081
             # paste_y = 266
 
@@ -385,29 +395,55 @@ class SimImageDataGen():
             # showAndWait('background_roi', background_roi)
             # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/canvas_ros.png', background_roi)
 
+            # Now randomly change brightness and contract of foreground drone
+            bright_val = np.random.randint(-30, 30)
+            contrast_val = min(max(np.random.normal(1.5, 0.5), 1.0), 2.5)
+            logging.info("    bright_val: {}".format(bright_val))
+            logging.info("    contrast_val: {}".format(contrast_val))
+            bright_foreground_img = cv2.convertScaleAbs(rotated_paste_img, alpha=contrast_val, beta=bright_val)
+            # utils.showAndWait('rotated_paste_img', rotated_paste_img)
+            # utils.showAndWait('bright_foreground_img', bright_foreground_img)
+
             # Now take only region of paste image that is not black
-            foreground_roi = cv2.bitwise_and(rotated_paste_img, rotated_paste_img, mask=mask)
+            foreground_roi = cv2.bitwise_and(bright_foreground_img, bright_foreground_img, mask=mask)
             # showAndWait('foreground_roi', foreground_roi)
             # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/foreground_roi.png', foreground_roi)
 
             # Put them together
             merged_roi = cv2.add(background_roi, foreground_roi)
             # showAndWait('merged_roi', merged_roi)
-            # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/merged_roi.png', merged_roi)
+            # cv2.imwrite('/home/mfp/drone-net/test/merged_roi.png', merged_roi)
+
+
+            # Now randomly add blur
+            blur_val = np.random.randint(0, 5)
+            logging.info("    blur_val: {}".format(blur_val))
+            if blur_val > 0:
+                #blured_roi = cv2.GaussianBlur(merged_roi, (blur_val, blur_val), 0)
+                blured_roi = cv2.blur(merged_roi, (blur_val, blur_val))
+            else:
+                blured_roi = merged_roi
+            # cv2.imwrite('/home/mfp/drone-net/test/blured_roi.png', blured_roi)
 
             # Now put them back into the canvas
             canvas_img[paste_y:(paste_y + paste_height),
-                       paste_x:(paste_x + paste_width)] = merged_roi
+                       paste_x:(paste_x + paste_width)] = blured_roi
 
-            utils.showAndWait('canvas_img', canvas_img)
+            # utils.showAndWait('canvas_img', canvas_img)
 
             # Now put the label into the canvas
             ret, label_mask = cv2.threshold(rotated_paste_mask, 5, 255, cv2.THRESH_BINARY)
 
-            canvas_label[paste_y:(paste_y + label_mask.shape[0]),
-                         paste_x:(paste_x + label_mask.shape[1]), 2] = label_mask
+            where_label = np.array(np.where(label_mask))
 
-            utils.showAndWait('canvas_label', canvas_label)
+            canvas_label_roi = canvas_label[paste_y:(paste_y + label_mask.shape[0]),
+                                            paste_x:(paste_x + label_mask.shape[1]), 2]
+            canvas_label_roi[where_label[0], where_label[1]] = 255
+
+            canvas_label[paste_y:(paste_y + label_mask.shape[0]),
+                         paste_x:(paste_x + label_mask.shape[1]), 2] = canvas_label_roi
+
+            # utils.showAndWait('canvas_label', canvas_label)
 
             self.canvas_paste_links.append([canvas_idx, tile_idx, canvas_img_file, paste_img_file,
                                             paste_x, paste_y, paste_width, paste_height])
@@ -415,6 +451,8 @@ class SimImageDataGen():
             labels.append([paste_x, paste_y,
                            (paste_x + paste_width),
                            (paste_y + paste_height)])
+
+            self.incrementNextPastedImageIndex(paste_img_files)
 
         # showAndWait('canvas_img', canvas_img)
 
