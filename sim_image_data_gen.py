@@ -31,19 +31,19 @@ def processArgs():
                         help='Data dir where sim images will be generated.')
     parser.add_argument('--min_paste_dim_size', type=int, default=40,
                         help='minimum size of any dimension of pasted image.')
-    parser.add_argument('--max_paste_dim_size', type=int, default=400,
+    parser.add_argument('--max_paste_dim_size', type=int, default=100,
                         help='maximum size of any dimension of pasted image.')
-    parser.add_argument('--max_paste_rotation', type=int, default=45,
+    parser.add_argument('--max_paste_rotation', type=int, default=60,
                         help='maximum rotation that can be randomly added to pasted image.')
     parser.add_argument('--max_canvas_rotation', type=int, default=5,
                         help='maximum rotation that can be randomly added to canvas image.')
-    parser.add_argument('--final_img_width', type=int, default=700,
+    parser.add_argument('--final_img_width', type=int, default=300,
                         help='height of the final produced image.')
-    parser.add_argument('--final_img_height', type=int, default=700,
+    parser.add_argument('--final_img_height', type=int, default=300,
                         help='width of the final produced image.')
-    parser.add_argument('--min_pasted_per_canvas', type=int, default=1,
+    parser.add_argument('--min_pasted_per_canvas', type=int, default=3,
                         help='minimum number of pasted images per canvas.')
-    parser.add_argument('--max_pasted_per_canvas', type=int, default=4,
+    parser.add_argument('--max_pasted_per_canvas', type=int, default=6,
                         help='maximum number of pasted images per canvas.')
 
     args, unknown = parser.parse_known_args()
@@ -108,10 +108,10 @@ class SimImageDataGen():
         # Now create the other directories we will need.
         os.mkdir(self.save_dir)
 
-        self.train_img_dir = self.save_dir + "/image"
+        self.train_img_dir = self.save_dir + "/images"
         os.mkdir(self.train_img_dir)
 
-        self.train_label_dir = self.save_dir + "/label"
+        self.train_label_dir = self.save_dir + "/labels"
         os.mkdir(self.train_label_dir)
 
         self.canvas_img_files = utils.findFilesOfType(self.canvas_image_dir, ['png', 'jpg', 'jpeg'])
@@ -396,8 +396,12 @@ class SimImageDataGen():
             # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/canvas_ros.png', background_roi)
 
             # Now randomly change brightness and contract of foreground drone
-            bright_val = np.random.randint(-30, 30)
-            contrast_val = min(max(np.random.normal(1.5, 0.5), 1.0), 2.5)
+            bright_val = np.random.randint(-8, 8)
+            contrast_val = np.random.normal(1.0, 0.08)
+            if contrast_val < 1:
+                contrast_val = 1 + (1-contrast_val)
+            if contrast_val > 1.5:
+                contrast_val = 1.3;
             logging.info("    bright_val: {}".format(bright_val))
             logging.info("    contrast_val: {}".format(contrast_val))
             bright_foreground_img = cv2.convertScaleAbs(rotated_paste_img, alpha=contrast_val, beta=bright_val)
@@ -416,7 +420,7 @@ class SimImageDataGen():
 
 
             # Now randomly add blur
-            blur_val = np.random.randint(0, 5)
+            blur_val = np.random.randint(0, 4)
             logging.info("    blur_val: {}".format(blur_val))
             if blur_val > 0:
                 #blured_roi = cv2.GaussianBlur(merged_roi, (blur_val, blur_val), 0)

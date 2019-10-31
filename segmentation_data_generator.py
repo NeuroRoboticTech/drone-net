@@ -23,7 +23,9 @@ def processArgs():
     """ Processes command line arguments     """
     parser = argparse.ArgumentParser(description='Generates segmentation data.')
     parser.add_argument('--data_dir', type=str, required=True,
-                        help='Data dir containing images and labels.')
+                        help='Data dir containing images.')
+    parser.add_argument('--label_dir', type=str, required=True,
+                        help='Data dir containing labels.')
     parser.add_argument('--save_dir', type=str, required=True,
                         help='dir where data will be generated.')
 
@@ -40,10 +42,14 @@ class SegmentDataGenerator ():
         logging.info("creating image dataset generator ...")
 
         self.data_dir = args.data_dir
+        self.label_dir = args.label_dir
         self.save_dir = args.save_dir
 
         self.img_out_dir = ""
         self.label_out_dir = ""
+        self.canvas_extension = ".png"
+
+        self.label_files = []
 
     def initialize(self):
         """
@@ -55,22 +61,25 @@ class SegmentDataGenerator ():
         if not os.path.exists(self.data_dir):
             raise RuntimeError("data image directory does not exist: {}".format(self.data_dir))
 
+        if not os.path.exists(self.label_dir):
+            raise RuntimeError("label image directory does not exist: {}".format(self.label_dir))
+
         if os.path.exists(self.save_dir):
             shutil.rmtree(self.save_dir)
             # Give the OS a little time to actually make the new directory. Was running into errors
             # where creating the html folder inside this folder would periodically error out.
             time.sleep(0.1)
 
-        # # Now create the other directories we will need.
-        # os.mkdir(self.save_dir)
-        #
-        # self.img_out_dir = self.save_dir + "/images"
-        # os.mkdir(self.img_out_dir)
-        #
-        # self.label_out_dir = self.save_dir + "/labels"
-        # os.mkdir(self.label_out_dir)
-        #
-        self.label_files = utils.findFilesOfType(self.data_dir, ['_label.png'])
+        # Now create the other directories we will need.
+        os.mkdir(self.save_dir)
+
+        self.img_out_dir = self.save_dir + "/images"
+        os.mkdir(self.img_out_dir)
+
+        self.label_out_dir = self.save_dir + "/labels"
+        os.mkdir(self.label_out_dir)
+
+        self.label_files = utils.findFilesOfType(self.label_dir, ['_label.png'])
 
         if len(self.label_files) <= 0:
             raise RuntimeError("No label image files were found")
@@ -115,24 +124,23 @@ class SegmentDataGenerator ():
     def generate(self):
 
         # go through once and find max dims for all images.
-        max_width = 0
-        max_height = 0
-        for label_file in self.label_files:
-            img = cv2.imread(label_file, cv2.IMREAD_UNCHANGED)
-
-            if img.shape[0] > max_height:
-                max_height = img.shape[0]
-
-            if img.shape[1] > max_width:
-                max_width = img.shape[1]
-
+        max_width = 300
+        max_height = 300
+        # for label_file in self.label_files:
+        #     img = cv2.imread(label_file, cv2.IMREAD_UNCHANGED)
+        #
+        #     if img.shape[0] > max_height:
+        #         max_height = img.shape[0]
+        #
+        #     if img.shape[1] > max_width:
+        #         max_width = img.shape[1]
 
         for label_file in self.label_files:
             logging.info("processing {}".format(label_file))
             orig_filename = os.path.basename(label_file)
             orig_basename = os.path.splitext(orig_filename)[0]
 
-            img_file = self.data_dir + orig_basename[:-6] + '.jpg'
+            img_file = self.data_dir + orig_basename[:-6] + self.canvas_extension
             if os.path.exists(img_file):
                 self.generateLabelFile(label_file, img_file, orig_basename, max_width, max_height)
             else:

@@ -38,9 +38,9 @@ def processArgs():
                         help='maximum rotation that can be randomly added to pasted image.')
     parser.add_argument('--max_canvas_rotation', type=int, default=5,
                         help='maximum rotation that can be randomly added to canvas image.')
-    parser.add_argument('--final_img_width', type=int, default=1248,
+    parser.add_argument('--final_img_width', type=int, default=700,
                         help='height of the final produced image.')
-    parser.add_argument('--final_img_height', type=int, default=384,
+    parser.add_argument('--final_img_height', type=int, default=700,
                         help='width of the final produced image.')
     parser.add_argument('--percent_for_val', type=int, default=10,
                         help='percentage of images to use for val.')
