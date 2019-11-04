@@ -7498,19 +7498,6 @@
         "annotations": [
             {
                 "class": "rect",
-                "height": 91.0,
-                "width": 226.0,
-                "x": 53.0,
-                "y": 80.0
-            }
-        ],
-        "class": "image",
-        "filename": "./images/empoli-italy-september-20-2015-260nw-319371029.jpg"
-    },
-    {
-        "annotations": [
-            {
-                "class": "rect",
                 "height": 152.51470974520618,
                 "width": 206.41042815865512,
                 "x": 77.0,

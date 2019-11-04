@@ -136,8 +136,8 @@ def saveDetectNetLabelFile(label, list, filename):
             y_max = l['y'] + l['height']
 
             f.write("{} 0.0 0 0.0 {} {} {} {} 0.0 0.0 0.0 0.0 0.0 0.0 0.0\n".format(label, l['x'],
-                                                                                    l['y'], x_max,
-                                                                                    y_max))
+                                                                                    l['y'], x_max, y_max))
+
 def loadYoloLabels(label_file):
 
     label_data = []

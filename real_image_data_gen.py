@@ -30,17 +30,15 @@ def processArgs():
                         help='dir where data will be generated.')
     parser.add_argument('--paste_label_json', type=str, required=True,
                         help='paste label json file.')
-    parser.add_argument('--min_paste_dim_size', type=int, default=300,
-                        help='minimum size of any dimension of pasted image.')
-    parser.add_argument('--max_paste_dim_size', type=int, default=800,
-                        help='maximum size of any dimension of pasted image.')
+    parser.add_argument('--min_paste_label_area', type=int, default=150,
+                        help='minimum size of smallest dimension of pasted image.')
     parser.add_argument('--max_paste_rotation', type=int, default=45,
                         help='maximum rotation that can be randomly added to pasted image.')
     parser.add_argument('--max_canvas_rotation', type=int, default=5,
                         help='maximum rotation that can be randomly added to canvas image.')
-    parser.add_argument('--final_img_width', type=int, default=700,
+    parser.add_argument('--final_img_width', type=int, default=608,
                         help='height of the final produced image.')
-    parser.add_argument('--final_img_height', type=int, default=700,
+    parser.add_argument('--final_img_height', type=int, default=608,
                         help='width of the final produced image.')
     parser.add_argument('--percent_for_val', type=int, default=10,
                         help='percentage of images to use for val.')
@@ -61,8 +59,7 @@ class RealImageDataGen ():
         self.paste_image_dir = args.paste_image_dir
         self.paste_label_json = args.paste_label_json
         self.save_dir = args.save_dir
-        self.min_paste_dim_size = args.min_paste_dim_size
-        self.max_paste_dim_size = args.max_paste_dim_size
+        self.min_paste_label_area = args.min_paste_label_area
         self.final_img_width = args.final_img_width
         self.final_img_height = args.final_img_height
         self.max_paste_rotation = args.max_paste_rotation
@@ -82,6 +79,11 @@ class RealImageDataGen ():
         self.all_paste_files_used = False
 
         self.generate_masks = True
+
+        self.max_paste_label_area = -1 # When -1 it means use default image label size.
+
+        self.canvas_train_img_files = []
+        self.canvas_val_img_files = []
 
     def initialize(self):
         """
@@ -308,8 +310,17 @@ class RealImageDataGen ():
 
     def printLabelDims(self, labels):
 
-        for l in labels:
-            logging.info("    x: {0:.2f}, y: {0:.2f}, w: {0:.2f}, h: {0:.2f}".format(l['x'], l['y'], l['width'], l['height']))
+        if len(labels) > 0:
+            min_area = 99999999999
+            for l in labels:
+                logging.info("    x: {0:.2f}, y: {0:.2f}, w: {0:.2f}, h: {0:.2f}".format(l['x'], l['y'], l['width'], l['height']))
+                area = l['width'] * l['height']
+                if area < min_area:
+                    min_area = area
+
+            return min_area
+        else:
+            return 0.0
 
     def drawLabels(self, img, labels):
 
@@ -424,7 +435,7 @@ class RealImageDataGen ():
                 paste_height = paste_img.shape[0]
                 logging.info("    paste_width: {}".format(paste_width))
                 logging.info("    paste_height: {}".format(paste_height))
-                self.printLabelDims(labels)
+                min_label_area = self.printLabelDims(labels)
 
                 # If the paste height is greater than the canvas height then rotate by 90 or -90 degrees.
                 if paste_height > canvas_height:
@@ -433,6 +444,11 @@ class RealImageDataGen ():
                     width_temp = paste_width
                     paste_width = paste_height
                     paste_height = width_temp
+
+                # Scale the image first
+                if self.max_paste_label_area > 0:
+                    scale_val = np.random.uniform(self.min_paste_label_area, min_label_area)
+                    
 
                 paste_x, paste_y, last_x = self.getNonoverlappingPastePos(last_x, paste_width, paste_height,
                                                                           canvas_width, canvas_height,
