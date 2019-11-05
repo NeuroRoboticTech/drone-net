@@ -9,6 +9,7 @@ import scipy.misc as misc
 import math
 from PIL import Image
 
+
 def setupLogging(prefix):
     logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
     rootLogger = logging.getLogger()
@@ -23,6 +24,7 @@ def setupLogging(prefix):
 
     rootLogger.setLevel(level=logging.INFO)
     logging.info("starting up")
+
 
 def rotateImg(img, angle, mask_in=None):
     if angle == 0:
@@ -93,6 +95,7 @@ def rotateImg(img, angle, mask_in=None):
     # return the rotated image
     return out_image, out_mask
 
+
 def generateMask(img):
     if len(img.shape) == 3:
         img_grey = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -102,9 +105,11 @@ def generateMask(img):
     ret, mask = cv2.threshold(img_grey, 5, 255, cv2.THRESH_BINARY)
     return mask
 
+
 def showAndWait(name, img):
     cv2.imshow(name, img)
     cv2.waitKey(0)
+
 
 def findFilesOfType(input_dir, endings):
     # Get the xml files in the directory
@@ -122,6 +127,7 @@ def findFilesOfType(input_dir, endings):
 
     return ret_files
 
+
 def writeFileList(list, filename):
     with open(filename, 'w') as f:
         for item in list:
@@ -137,6 +143,7 @@ def saveDetectNetLabelFile(label, list, filename):
 
             f.write("{} 0.0 0 0.0 {} {} {} {} 0.0 0.0 0.0 0.0 0.0 0.0 0.0\n".format(label, l['x'],
                                                                                     l['y'], x_max, y_max))
+
 
 def loadYoloLabels(label_file):
 
@@ -159,6 +166,18 @@ def loadYoloLabels(label_file):
 
     return label_data
 
+
+def saveYoloLabelFile(label, list, filename, img_width, img_height):
+    with open(filename, 'w') as f:
+        for l in list:
+            x_center = l['x'] / img_width
+            y_center = l['y'] / img_height
+            width = l['width'] / img_width
+            height = l['height'] / img_height
+
+            f.write("{0} {0:.6f} {0:.6f} {0:.6f} {0:.6f}\n".format(label, x_center, y_center, width, height))
+
+
 def rotate(origin, point, angle_deg):
     """
     Rotate a point counterclockwise by a given angle around a given origin.
@@ -177,6 +196,7 @@ def rotate(origin, point, angle_deg):
 
 def bitget(byteval, idx):
     return ((byteval & (1 << idx)) != 0)
+
 
 def color_map(N=256, normalized=False):
     cmap = []

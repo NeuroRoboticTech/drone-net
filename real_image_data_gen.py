@@ -30,9 +30,9 @@ def processArgs():
                         help='dir where data will be generated.')
     parser.add_argument('--paste_label_json', type=str, required=True,
                         help='paste label json file.')
-    parser.add_argument('--min_paste_label_area', type=int, default=150,
+    parser.add_argument('--min_paste_label_area', type=int, default=800,
                         help='minimum size of smallest dimension of pasted image.')
-    parser.add_argument('--max_paste_rotation', type=int, default=45,
+    parser.add_argument('--max_paste_rotation', type=int, default=80,
                         help='maximum rotation that can be randomly added to pasted image.')
     parser.add_argument('--max_canvas_rotation', type=int, default=5,
                         help='maximum rotation that can be randomly added to canvas image.')
@@ -76,11 +76,11 @@ class RealImageDataGen ():
 
         self.paste_image_idx = 0
 
-        self.all_paste_files_used = False
+        self.all_paste_files_used_count = 0
 
-        self.generate_masks = True
+        self.generate_masks = False
 
-        self.max_paste_label_area = -1 # When -1 it means use default image label size.
+        self.force_scale = 0.85  # When -1 it means use default image label size.
 
         self.canvas_train_img_files = []
         self.canvas_val_img_files = []
@@ -115,20 +115,19 @@ class RealImageDataGen ():
 
         # Now create the other directories we will need.
         os.mkdir(self.save_dir)
-        os.mkdir(self.save_dir + "/training_data")
-        os.mkdir(self.save_dir + "/training_data/train")
-        os.mkdir(self.save_dir + "/training_data/val")
+        os.mkdir(self.save_dir + "/train")
+        os.mkdir(self.save_dir + "/val")
 
-        self.train_img_dir = self.save_dir + "/training_data/train/image"
+        self.train_img_dir = self.save_dir + "/train/images"
         os.mkdir(self.train_img_dir)
 
-        self.train_label_dir = self.save_dir + "/training_data/train/label"
+        self.train_label_dir = self.save_dir + "/train/labels"
         os.mkdir(self.train_label_dir)
 
-        self.val_img_dir = self.save_dir + "/training_data/val/image"
+        self.val_img_dir = self.save_dir + "/val/images"
         os.mkdir(self.val_img_dir)
 
-        self.val_label_dir = self.save_dir + "/training_data/val/label"
+        self.val_label_dir = self.save_dir + "/val/labels"
         os.mkdir(self.val_label_dir)
 
         canvas_img_files = utils.findFilesOfType(self.canvas_image_dir, ['png', 'jpg', 'jpeg'])
@@ -136,8 +135,8 @@ class RealImageDataGen ():
         if len(canvas_img_files) <= 0:
             raise RuntimeError("No canvas image files were found")
 
-        np.random.shuffle(canvas_img_files)
-        np.random.shuffle(self.paste_labels)
+        #np.random.shuffle(canvas_img_files)
+        #np.random.shuffle(self.paste_labels)
 
         canvas_val_count = int(len(canvas_img_files) * self.percent_for_val)
         paste_val_count = int(len(self.paste_labels) * self.percent_for_val)
@@ -213,7 +212,9 @@ class RealImageDataGen ():
         self.paste_image_idx += 1
         if self.paste_image_idx >= len(paste_img_files):
             self.paste_image_idx = 0
-            self.all_paste_files_used = True
+            self.all_paste_files_used_count += 1
+            self.force_scale = self.force_scale - self.all_paste_files_used * 0.25
+
 
         return self.paste_image_idx
 
@@ -250,7 +251,7 @@ class RealImageDataGen ():
 
         return paste_x, y, last_x
 
-    def flipPasteImage(self, paste_img, labels):
+    def roatedPasteImageBy90(self, paste_img, labels):
         flip_val = np.random.randint(0, 100)
         if flip_val < 50:
             logging.info("Rotating by -90.")
@@ -259,25 +260,82 @@ class RealImageDataGen ():
             logging.info("Rotating by 90.")
             rotate_deg = 90
 
-        rotated_paste_img, = utils.rotateImg(paste_img, rotate_deg)
+        return self.rotatePasteImage(paste_img, labels, rotate_deg)
+
+    def rotatePasteImageRandom(self, paste_img, labels, rotate_deg):
+        if rotate_deg == 0:
+            rotate_deg = self.getForcedRandomRotationValue(self.max_canvas_rotation)
+
+        logging.info("  rotate_deg: {}.".format(rotate_deg))
+
+        return self.rotatePasteImage(paste_img, labels, rotate_deg)
+
+    def rotatePasteImage(self, img, labels, rotate_deg=0):
+
+        # drawn_img = self.drawLabels(img.copy(), labels)
+        # utils.showAndWait('drawn_img', drawn_img)
+
+        rotated, mask = utils.rotateImg(img, rotate_deg)
+        # rotated = misc.imrotate(img, rotate_deg)
+        # utils.showAndWait('rotated', rotated)
+
+        center_x = img.shape[1] / 2.0
+        center_y = img.shape[0] / 2.0
+
+        new_center_x = rotated.shape[1] / 2.0
+        new_center_y = rotated.shape[0] / 2.0
 
         new_labels = []
         for l in labels:
-            new_right = utils.rotate([0.0, 0.0], l['x'], rotate_deg)
-            new_top = utils.rotate([0.0, 0.0], l['y'], rotate_deg)
-            new_left = utils.rotate([0.0, 0.0], l['x']+l['width'], rotate_deg)
-            new_bottom = utils.rotate([0.0, 0.0], l['y']+l['height'], rotate_deg)
+            w = l['width']  # * 0.85
+            h = l['height']  # * 0.85
+            tl = [l['x']-center_x, (l['y']-center_y)]
+            tr = [l['x']+w-center_x, (l['y']-center_y)]
+            bl = [l['x']-center_x, (l['y']+h-center_y)]
+            br = [l['x']+w-center_x, (l['y']+h-center_y)]
+            top_left = utils.rotate([0.0, 0.0], tl, -rotate_deg)
+            top_right = utils.rotate([0.0, 0.0], tr, -rotate_deg)
+            bottom_left = utils.rotate([0.0, 0.0], bl, -rotate_deg)
+            bottom_right = utils.rotate([0.0, 0.0], br, -rotate_deg)
+
+            tl2 = [(top_left[0] + new_center_x), (top_left[1] + new_center_y)]
+            tr2 = [(top_right[0] + new_center_x), (top_right[1] + new_center_y)]
+            bl2 = [(bottom_left[0] + new_center_x), (bottom_left[1] + new_center_y)]
+            br2 = [(bottom_right[0] + new_center_x), (bottom_right[1] + new_center_y)]
+
+            # rotated = cv2.line(rotated,
+            #                    (int(tl2[0]), int(tl2[1])),
+            #                    (int(tr2[0]), int(tr2[1])),
+            #                    color=(0, 0, 255), thickness=3)
+            # rotated = cv2.line(rotated,
+            #                    (int(tr2[0]), int(tr2[1])),
+            #                    (int(br2[0]), int(br2[1])),
+            #                    color=(0, 0, 255), thickness=3)
+            # rotated = cv2.line(rotated,
+            #                    (int(br2[0]), int(br2[1])),
+            #                    (int(bl2[0]), int(bl2[1])),
+            #                    color=(0, 0, 255), thickness=3)
+            # rotated = cv2.line(rotated,
+            #                    (int(bl2[0]), int(bl2[1])),
+            #                    (int(tl2[0]), int(tl2[1])),
+            #                    color=(0, 0, 255), thickness=3)
+            # utils.showAndWait('rotated', rotated)
+
+            min_x = min(tl2[0], tr2[0], bl2[0], br2[0])
+            max_x = max(tl2[0], tr2[0], bl2[0], br2[0])
+            min_y = min(tl2[1], tr2[1], bl2[1], br2[1])
+            max_y = max(tl2[1], tr2[1], bl2[1], br2[1])
 
             new_l = l.copy()
-            new_l['x'] = new_right
-            new_l['y'] = new_top
-            new_l['width'] = new_left - new_right
-            new_l['height'] = new_bottom - new_top
+            new_l['x'] = min_x
+            new_l['y'] = min_y
+            new_l['width'] = (max_x - min_x)
+            new_l['height'] = (max_y - min_y)
 
             new_labels.append(new_l)
             self.printLabelDims(new_labels)
 
-        return rotated_paste_img, new_labels
+        return rotated, new_labels
 
     def flipLabels(self, labels, paste_width):
 
@@ -302,6 +360,21 @@ class RealImageDataGen ():
             new_l = l.copy()
             new_l['x'] = x + l['x']
             new_l['y'] = y + l['y']
+            new_labels.append(new_l)
+
+        self.printLabelDims(new_labels)
+
+        return new_labels
+
+    def scaleLabels(self, labels, ratio):
+
+        new_labels = []
+        for l in labels:
+            new_l = l.copy()
+            new_l['x'] = l['x'] * ratio
+            new_l['y'] = l['y'] * ratio
+            new_l['width'] = l['width'] * ratio
+            new_l['height'] = l['height'] * ratio
             new_labels.append(new_l)
 
         self.printLabelDims(new_labels)
@@ -412,7 +485,7 @@ class RealImageDataGen ():
         while not done:
             try:
                 paste_img_file_idx = self.paste_image_idx
-                # paste_img_file  = '/media/dcofer/Ubuntu_Data/drone-net/images_labeled/dji-mavic-pro-drone-riga-260nw-533974795.jpg'
+                # paste_img_file  = '/media/dcofer/Ubuntu_Data/drone-net/images/03012017-dji-phantom-flying-sky-260nw-554568589.jpg'
                 paste_label = paste_img_files[paste_img_file_idx]
                 paste_img_file = self.paste_image_dir + '/' + paste_label['filename']
 
@@ -435,20 +508,38 @@ class RealImageDataGen ():
                 paste_height = paste_img.shape[0]
                 logging.info("    paste_width: {}".format(paste_width))
                 logging.info("    paste_height: {}".format(paste_height))
-                min_label_area = self.printLabelDims(labels)
+                min_area = self.printLabelDims(labels)
 
                 # If the paste height is greater than the canvas height then rotate by 90 or -90 degrees.
                 if paste_height > canvas_height:
                     logging.info("paste height to large. flipping over.")
-                    paste_img, labels = self.flipPasteImage(paste_img, labels)
+                    paste_img, labels = self.roatedPasteImageBy90(paste_img, labels)
                     width_temp = paste_width
                     paste_width = paste_height
                     paste_height = width_temp
 
                 # Scale the image first
-                if self.max_paste_label_area > 0:
-                    scale_val = np.random.uniform(self.min_paste_label_area, min_label_area)
-                    
+                logging.info("min area: {}".format(min_area))
+                forced_min_area = min_area * self.force_scale
+                if self.force_scale > 0 and forced_min_area > self.min_paste_label_area:
+                    paste_width = int(paste_width * self.force_scale)
+                    paste_height = int(paste_height * self.force_scale)
+
+                    paste_img = cv2.resize(paste_img, dsize=(paste_width, paste_height),
+                                           interpolation=cv2.INTER_AREA)
+                    if self.generate_masks:
+                        mask_img = cv2.resize(mask_img, dsize=(paste_width, paste_height),
+                                              interpolation=cv2.INTER_AREA)
+                    labels = self.scaleLabels(labels, self.force_scale)
+                elif forced_min_area < self.min_paste_label_area:
+                    logging.info("forced min area below min area: {} < {}".format(forced_min_area,
+                                                                                  self.min_paste_label_area))
+
+                if self.force_scale > 0:
+                    paste_img, labels = self.rotatePasteImageRandom(paste_img, labels, rotate_deg=0)
+
+                    paste_width = paste_img.shape[1]
+                    paste_height = paste_img.shape[0]
 
                 paste_x, paste_y, last_x = self.getNonoverlappingPastePos(last_x, paste_width, paste_height,
                                                                           canvas_width, canvas_height,
@@ -468,13 +559,16 @@ class RealImageDataGen ():
                     else:
                         logging.info("    flip_val: {}. Leaving image unflipped".format(flip_val))
 
-                    # Now put them back into the canvas
-                    canvas_img[paste_y:(paste_y + paste_height),
-                               paste_x:(paste_x + paste_width)] = paste_img
+                    where = np.array(np.where(paste_img))
 
-                    if not canvas_mask_img is None and not mask_img is None:
-                        canvas_mask_img[paste_y:(paste_y + paste_height),
-                                        paste_x:(paste_x + paste_width)] = mask_img
+                    where_x = where[1] + paste_x
+                    where_y = where[0] + paste_y
+
+                    canvas_img[where_y, where_x] = paste_img[where[0], where[1]]
+
+                    # if not canvas_mask_img is None and not mask_img is None:
+                    #     canvas_mask_img[paste_y:(paste_y + paste_height),
+                    #                     paste_x:(paste_x + paste_width)] = mask_img
 
                     # utils.showAndWait('canvas_img', canvas_img)
 
@@ -497,9 +591,9 @@ class RealImageDataGen ():
             return
 
         canvas_img = np.array(canvas_img)
-        #canvas_img = self.drawLabels(canvas_img, all_labels)
+        canvas_img = self.drawLabels(canvas_img, all_labels)
 
-        # utils.showAndWait('canvas_img', canvas_img)
+        utils.showAndWait('canvas_img', canvas_img)
 
         save_img_filename = '{}_{}.png'.format(canvas_idx, tile_idx)
         save_img_file = save_img_dir + '/{}'.format(save_img_filename)
@@ -509,7 +603,8 @@ class RealImageDataGen ():
 
         save_label_file = save_label_dir + '/{}_{}.txt'.format(canvas_idx, tile_idx)
         logging.info("saving lable: {}".format(save_label_file))
-        utils.saveDetectNetLabelFile('Car', labels, save_label_file)
+        # utils.saveDetectNetLabelFile('Car', labels, save_label_file)
+        utils.saveYoloLabelFile(0, labels, save_label_file, img_width=canvas_width, img_height=canvas_height)
 
         if self.generate_masks and canvas_mask_img is not None:
             save_mask_file = save_label_dir + '/{}'.format(save_img_filename)
@@ -524,21 +619,20 @@ class RealImageDataGen ():
         out_labels.append(json_label)
 
 
-    def getForcedRandomRotationValue(self):
+    def getForcedRandomRotationValue(self, max_rotation):
 
         flip_val = np.random.randint(0, 100)
         if flip_val < 50:
-            rotate = int(np.random.uniform(2, self.max_canvas_rotation))
+            rotate = int(np.random.uniform(2, max_rotation))
         else:
-            rotate = int(np.random.uniform(-2, -self.max_canvas_rotation))
+            rotate = int(np.random.uniform(-2, -max_rotation))
         return rotate
 
     def rotateCanvasImage(self, canvas_img, rotate_deg=0):
         if rotate_deg == 0:
-            rotate_deg = self.getForcedRandomRotationValue()
+            rotate_deg = self.getForcedRandomRotationValue(self.max_canvas_rotation)
 
         logging.info("  rotate_deg: {}.".format(rotate_deg))
-        max_buff_dim = int(max(canvas_img.shape[0], canvas_img.shape[1]) * 2.0)
         rotated_canvas_img, rotated_canvas_mask = utils.rotateImg(canvas_img, rotate_deg,
                                                                   mask_in=None)
         # utils.showAndWait('rotated_paste_img', rotated_canvas_img)
@@ -603,11 +697,11 @@ class RealImageDataGen ():
 
                 if cut_x + tile_width > canvas_width:
                     cut_x = canvas_width - tile_width
-                    rotate_deg = self.getForcedRandomRotationValue()
+                    rotate_deg = self.getForcedRandomRotationValue(self.max_canvas_rotation)
 
                 if cut_y + tile_height > canvas_height:
                     cut_y = canvas_height - tile_height
-                    rotate_deg = self.getForcedRandomRotationValue()
+                    rotate_deg = self.getForcedRandomRotationValue(self.max_canvas_rotation)
 
                 cut_canvas_img = canvas_img[cut_y:(cut_y+tile_height), cut_x:(cut_x+tile_width)].copy()
 
@@ -637,7 +731,7 @@ class RealImageDataGen ():
 
         # Go through each canvas image and generate a set of images from it depending on its size.
         canvas_idx = 1
-        while not self.all_paste_files_used:
+        while self.all_paste_files_used_count < 4:
             for canvas_img_file in canvas_img_files:
                 # canvas_img_file = '/media/dcofer/Ubuntu_Data/drone_images/landscapes/vlcsnap-2018-12-21-1.png'
                 # canvas_img_orig = misc.imread(canvas_img_file)
@@ -692,13 +786,10 @@ class RealImageDataGen ():
                                      save_label_dir, canvas_idx, tile_idx+1, out_labels)
                 canvas_idx += 1
 
-                if self.all_paste_files_used:
-                    json_txt = json.dumps(out_labels)
-                    out_file = save_img_dir + "/output_labels.json"
-                    with open(out_file, 'w') as f:
-                        f.write(json_txt)
-
-                    break
+        json_txt = json.dumps(out_labels)
+        out_file = save_img_dir + "/output_labels.json"
+        with open(out_file, 'w') as f:
+            f.write(json_txt)
 
     def generate(self):
         """
