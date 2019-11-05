@@ -26,7 +26,7 @@ def processArgs():
     parser.add_argument('--paste_image_dir', type=str, required=True,
                         help='Data dir containing paste images.')
     parser.add_argument('--paste_label_dir', type=str, required=True,
-                        help='Data dir containing paste labels.')
+                        help='Data dir that contains paste labels.')
     parser.add_argument('--save_image_dir', type=str, required=True,
                         help='Data dir where sim images will be generated.')
     parser.add_argument('--min_paste_dim_size', type=int, default=40,
@@ -37,11 +37,11 @@ def processArgs():
                         help='maximum rotation that can be randomly added to pasted image.')
     parser.add_argument('--max_canvas_rotation', type=int, default=5,
                         help='maximum rotation that can be randomly added to canvas image.')
-    parser.add_argument('--final_img_width', type=int, default=300,
+    parser.add_argument('--final_img_width', type=int, default=608,
                         help='height of the final produced image.')
-    parser.add_argument('--final_img_height', type=int, default=300,
+    parser.add_argument('--final_img_height', type=int, default=608,
                         help='width of the final produced image.')
-    parser.add_argument('--min_pasted_per_canvas', type=int, default=3,
+    parser.add_argument('--min_pasted_per_canvas', type=int, default=0,
                         help='minimum number of pasted images per canvas.')
     parser.add_argument('--max_pasted_per_canvas', type=int, default=6,
                         help='maximum number of pasted images per canvas.')
@@ -81,7 +81,9 @@ class SimImageDataGen():
         self.paste_img_files = []
 
         self.paste_image_idx = 0
-        self.all_paste_files_used = False
+        self.all_paste_files_used_count = 0
+
+        self.file_prefix = "sim"
 
     def initialize(self):
         """
@@ -123,8 +125,8 @@ class SimImageDataGen():
         if len(self.paste_img_files) <= 0:
             raise RuntimeError("No pate image files were found")
 
-        np.random.shuffle(self.canvas_img_files)
-        np.random.shuffle(self.paste_img_files)
+        # np.random.shuffle(self.canvas_img_files)
+        # np.random.shuffle(self.paste_img_files)
 
     def loadPasteImage(self, filename):
         """ Loads a paste image and mask.
@@ -159,7 +161,7 @@ class SimImageDataGen():
         self.paste_image_idx += 1
         if self.paste_image_idx >= len(paste_img_files):
             self.paste_image_idx = 0
-            self.all_paste_files_used = True
+            self.all_paste_files_used_count += 1
 
         return self.paste_image_idx
 
@@ -202,8 +204,8 @@ class SimImageDataGen():
         :param l_h: label height
         :return: True if point in label box
         """
-        if (x > l_x and x < (l_x + l_w)) and \
-           (y > l_y and y < (l_y + l_h)):
+        if (x >= l_x and x <= (l_x + l_w)) and \
+           (y >= l_y and y <= (l_y + l_h)):
             return True
         else:
             return False
@@ -220,33 +222,33 @@ class SimImageDataGen():
         """
 
         for label in labels:
-            label_x = label[0]
-            label_y = label[1]
-            label_width = label[2]
-            label_height = label[3]
+            label_x = label['x']
+            label_y = label['y']
+            label_width = label['width']
+            label_height = label['height']
 
             # If the top right coordinate is in the box of the previous label it overlaps
-            top_right_x = x
-            top_right_y = y
-            if self.inLabelBox(top_right_x, top_right_y, label_x, label_y, label_width, label_height):
+            top_left_x = x
+            top_left_y = y
+            if self.inLabelBox(top_left_x, top_left_x, label_x, label_y, label_width, label_height):
                 return True
 
             # If the top left coordinate is in the box of the previous label it overlaps
-            top_left_x = x + width
-            top_left_y = y
-            if self.inLabelBox(top_left_x, top_left_y, label_x, label_y, label_width, label_height):
+            top_right_x = x + width
+            top_right_y = y
+            if self.inLabelBox(top_right_x, top_right_x, label_x, label_y, label_width, label_height):
                 return True
 
             # If the bottom right coordinate is in the box of the previous label it overlaps
-            bottom_right_x = x
-            bottom_right_y = y + height
-            if self.inLabelBox(bottom_right_x, bottom_right_y, label_x, label_y, label_width, label_height):
+            bottom_left_x = x
+            bottom_left_x = y + height
+            if self.inLabelBox(bottom_left_x, bottom_left_x, label_x, label_y, label_width, label_height):
                 return True
 
             # If the bottom left coordinate is in the box of the previous label it overlaps
-            bottom_left_x = x + width
-            bottom_left_y = y + height
-            if self.inLabelBox(bottom_left_x, bottom_left_y, label_x, label_y, label_width, label_height):
+            bottom_right_x = x + width
+            bottom_right_x = y + height
+            if self.inLabelBox(bottom_right_x, bottom_right_x, label_x, label_y, label_width, label_height):
                 return True
 
         return False
@@ -278,6 +280,10 @@ class SimImageDataGen():
             count += 1
             logging.info("overlaps: {}".format(count))
 
+        if overlapping:
+            paste_x = -1
+            paste_y = -1
+
         return paste_x, paste_y
 
     def addPastedImages(self, canvas_img_file, canvas_img, paste_img_files,
@@ -295,7 +301,7 @@ class SimImageDataGen():
 
         canvas_width = canvas_img.shape[1]
         canvas_height = canvas_img.shape[0]
-        num_pastes = np.random.randint(self.min_pasted_per_canvas, self.max_pasted_per_canvas)
+        num_pastes = 5 #np.random.randint(self.min_pasted_per_canvas, self.max_pasted_per_canvas)
         labels = []
 
         if canvas_height != self.final_img_height or canvas_width != self.final_img_width:
@@ -329,7 +335,7 @@ class SimImageDataGen():
             if paste_label_img.shape[0] != paste_height or paste_label_img.shape[1] != paste_width:
                 raise RuntimeError("Paste label dims do not match paste image.")
 
-            new_paste_width, new_paste_height = self.calcNewPasteDims(paste_width, paste_height)
+            new_paste_width, new_paste_height = 200, 200  #self.calcNewPasteDims(paste_width, paste_height)
 
             logging.info("    new_paste_width: {}".format(new_paste_width))
             logging.info("    new_paste_height: {}".format(new_paste_height))
@@ -398,8 +404,8 @@ class SimImageDataGen():
             # Now randomly change brightness and contract of foreground drone
             bright_val = np.random.randint(-8, 8)
             contrast_val = np.random.normal(1.0, 0.08)
-            if contrast_val < 1:
-                contrast_val = 1 + (1-contrast_val)
+            if contrast_val < 0.5:
+                contrast_val = 0.7
             if contrast_val > 1.5:
                 contrast_val = 1.3;
             logging.info("    bright_val: {}".format(bright_val))
@@ -452,26 +458,29 @@ class SimImageDataGen():
             self.canvas_paste_links.append([canvas_idx, tile_idx, canvas_img_file, paste_img_file,
                                             paste_x, paste_y, paste_width, paste_height])
 
-            labels.append([paste_x, paste_y,
-                           (paste_x + paste_width),
-                           (paste_y + paste_height)])
+            json_label = {"class": "rect",
+                          "height": (paste_y + paste_height),
+                          "width": (paste_x + paste_width),
+                          "x": paste_x,
+                          "y": paste_y}
+            labels.append(json_label)
 
             self.incrementNextPastedImageIndex(paste_img_files)
 
-        # showAndWait('canvas_img', canvas_img)
+        utils.showAndWait('canvas_img', canvas_img)
 
-        save_img_file = save_img_dir + '/{}_{}.png'.format(canvas_idx, tile_idx)
+        save_img_file = save_img_dir + '/{}_{}_{}.png'.format(self.file_prefix, canvas_idx, tile_idx)
         cv2.imwrite(save_img_file, canvas_img)
         logging.info("saving image: {}".format(save_img_file))
         #misc.imsave(save_file, canvas_img)
 
-        # save_label_file = save_label_dir + '/{}_{}.txt'.format(canvas_idx, tile_idx)
-        # utils.saveDetectNetLabelFile('Car', labels, save_label_file)
-        # logging.info("saving lable: {}".format(save_label_file))
-
-        save_label_file = save_label_dir + '/{}_{}_label.png'.format(canvas_idx, tile_idx)
-        cv2.imwrite(save_label_file, canvas_label)
-        logging.info("saving lable image: {}".format(save_label_file))
+        save_label_file = save_label_dir + '/()_{}_{}.txt'.format(self.file_prefix, canvas_idx, tile_idx)
+        utils.saveYoloLabelFile(0, labels, save_label_file, canvas_width, canvas_height)
+        logging.info("saving lable: {}".format(save_label_file))
+        #
+        # save_label_file = save_label_dir + '/()_{}_{}_label.png'.format(self.file_prefix, canvas_idx, tile_idx)
+        # cv2.imwrite(save_label_file, canvas_label)
+        # logging.info("saving lable image: {}".format(save_label_file))
 
     def getForcedRandomRotationValue(self):
 
@@ -562,6 +571,13 @@ class SimImageDataGen():
                 flipped_canvas_img = self.randomFlipImage(cut_canvas_img)
                 if rotate_deg != 0:
                     rotated_canvas_img = self.rotateCanvasImage(flipped_canvas_img, rotate_deg)
+
+                    # This fills in any black spots from rotation with pixels from the original flipped image.
+                    where = np.array(np.where(rotated_canvas_img))
+
+                    flipped_canvas_img[where[0], where[1]] = rotated_canvas_img[where[0], where[1]]
+
+                    rotated_canvas_img = flipped_canvas_img
                 else:
                     rotated_canvas_img = flipped_canvas_img
 

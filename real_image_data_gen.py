@@ -40,8 +40,6 @@ def processArgs():
                         help='height of the final produced image.')
     parser.add_argument('--final_img_height', type=int, default=608,
                         help='width of the final produced image.')
-    parser.add_argument('--percent_for_val', type=int, default=10,
-                        help='percentage of images to use for val.')
 
     args, unknown = parser.parse_known_args()
     return args
@@ -64,15 +62,11 @@ class RealImageDataGen ():
         self.final_img_height = args.final_img_height
         self.max_paste_rotation = args.max_paste_rotation
         self.max_canvas_rotation = args.max_canvas_rotation
-        self.percent_for_val = args.percent_for_val / 100.0
 
         self.root_train_img_dir = ""
-        self.root_val_img_dir = ""
 
         self.train_img_dir = ""
         self.train_label_dir = ""
-        self.val_img_dir = ""
-        self.val_label_dir = ""
 
         self.paste_image_idx = 0
 
@@ -80,10 +74,17 @@ class RealImageDataGen ():
 
         self.generate_masks = False
 
-        self.force_scale = 0.85  # When -1 it means use default image label size.
+        self.force_scale = -1.0  # When -1 it means use default image label size.
+        self.blur_thresh = 10
+        self.bright_thresh = 70
+        self.bright_max = 50
+        self.contrast_max = 0.1
+        self.blur_max = 5
 
-        self.canvas_train_img_files = []
-        self.canvas_val_img_files = []
+        self.canvas_img_files = []
+        self.paste_labels = []
+
+        self.file_prefix = "real"
 
     def initialize(self):
         """
@@ -107,63 +108,36 @@ class RealImageDataGen ():
         if len(self.paste_labels) <= 0:
             raise RuntimeError("Paste labels were empty.")
 
-        if os.path.exists(self.save_dir):
-            shutil.rmtree(self.save_dir)
+        if not os.path.exists(self.save_dir):
+            os.mkdir(self.save_dir)
+
+        self.train_img_dir = self.save_dir + "/images"
+
+        if os.path.exists(self.train_img_dir):
+            shutil.rmtree(self.train_img_dir)
             # Give the OS a little time to actually make the new directory. Was running into errors
             # where creating the html folder inside this folder would periodically error out.
             time.sleep(0.1)
 
-        # Now create the other directories we will need.
-        os.mkdir(self.save_dir)
-        os.mkdir(self.save_dir + "/train")
-        os.mkdir(self.save_dir + "/val")
-
-        self.train_img_dir = self.save_dir + "/train/images"
         os.mkdir(self.train_img_dir)
 
-        self.train_label_dir = self.save_dir + "/train/labels"
+        self.train_label_dir = self.save_dir + "/labels"
+
+        if os.path.exists(self.train_label_dir):
+            shutil.rmtree(self.train_label_dir)
+            # Give the OS a little time to actually make the new directory. Was running into errors
+            # where creating the html folder inside this folder would periodically error out.
+            time.sleep(0.1)
+
         os.mkdir(self.train_label_dir)
 
-        self.val_img_dir = self.save_dir + "/val/images"
-        os.mkdir(self.val_img_dir)
+        self.canvas_img_files = utils.findFilesOfType(self.canvas_image_dir, ['png', 'jpg', 'jpeg'])
 
-        self.val_label_dir = self.save_dir + "/val/labels"
-        os.mkdir(self.val_label_dir)
-
-        canvas_img_files = utils.findFilesOfType(self.canvas_image_dir, ['png', 'jpg', 'jpeg'])
-
-        if len(canvas_img_files) <= 0:
+        if len(self.canvas_img_files) <= 0:
             raise RuntimeError("No canvas image files were found")
 
-        #np.random.shuffle(canvas_img_files)
+        #np.random.shuffle(self.canvas_img_files)
         #np.random.shuffle(self.paste_labels)
-
-        canvas_val_count = int(len(canvas_img_files) * self.percent_for_val)
-        paste_val_count = int(len(self.paste_labels) * self.percent_for_val)
-
-        if canvas_val_count <= 0:
-            canvas_val_count = 1
-
-        if paste_val_count <= 0:
-            paste_val_count = 1
-
-        self.canvas_train_img_files = canvas_img_files[:-canvas_val_count]
-        self.canvas_val_img_files = canvas_img_files[(len(canvas_img_files)-canvas_val_count):]
-
-        c_t_c = len(self.canvas_train_img_files)
-        c_v_c = len(self.canvas_val_img_files)
-
-        if len(canvas_img_files) != (c_t_c + c_v_c):
-            raise RuntimeError("Mismatch in train/val canvas image split.")
-
-        self.paste_train_img_files = self.paste_labels[:-paste_val_count]
-        self.paste_val_img_files = self.paste_labels[(len(self.paste_labels)-paste_val_count):]
-
-        p_t_c = len(self.paste_train_img_files)
-        p_v_c = len(self.paste_val_img_files)
-
-        if len(self.paste_labels) != (p_t_c + p_v_c):
-            raise RuntimeError("Mismatch in train/val paste image split.")
 
 
     def loadPasteImage(self, filename, cut_height=0):
@@ -202,19 +176,37 @@ class RealImageDataGen ():
 
         return paste_img, paste_img_mask
 
-    def incrementNextPastedImageIndex(self, paste_img_files):
+    def incrementNextPastedImageIndex(self, paste_labels):
         """ Gets the index of the next paste image so we go through them all.
 
-        :param paste_img_files: list of paste image files.
+        :param paste_labels: list of paste image files.
         :return: index of next image
         """
 
         self.paste_image_idx += 1
-        if self.paste_image_idx >= len(paste_img_files):
+        if self.paste_image_idx >= len(paste_labels):
             self.paste_image_idx = 0
             self.all_paste_files_used_count += 1
             self.force_scale = self.force_scale - self.all_paste_files_used * 0.25
 
+            if self.all_paste_files_used_count == 1:
+                self.blur_thresh = 50
+                self.bright_thresh = 70
+                self.bright_max = 50
+                self.contrast_max = 0.08
+                self.blur_max = 4
+            elif self.all_paste_files_used_count == 2:
+                self.blur_thresh = 40
+                self.bright_thresh = 50
+                self.bright_max = 40
+                self.contrast_max = 0.05
+                self.blur_max = 3
+            elif self.all_paste_files_used_count == 3:
+                self.blur_thresh = 30
+                self.bright_thresh = 40
+                self.bright_max = 30
+                self.contrast_max = 0.03
+                self.blur_max = 2
 
         return self.paste_image_idx
 
@@ -337,14 +329,19 @@ class RealImageDataGen ():
 
         return rotated, new_labels
 
-    def flipLabels(self, labels, paste_width):
+    def flipLabels(self, labels, paste_dim, vertical=False):
 
         new_labels = []
         for l in labels:
             # new_labels.append([paste_width - l[2], l[1], paste_width - l[0], l[3]])
 
             new_l = l.copy()
-            new_l['x'] = paste_width - (l['x'] + l['width'])
+
+            if not vertical:
+                new_l['x'] = paste_dim - (l['x'] + l['width'])
+            else:
+                new_l['y'] = paste_dim - (l['y'] + l['height'])
+
             new_labels.append(new_l)
 
             #new_labels.append([paste_width-l[2], l[1], paste_width-l[0], l[3]])
@@ -395,7 +392,9 @@ class RealImageDataGen ():
         else:
             return 0.0
 
-    def drawLabels(self, img, labels):
+    def drawLabels(self, img_in, labels):
+
+        img = img_in.copy()
 
         for l in labels:
             x_max = l['x'] + l['width']
@@ -448,14 +447,14 @@ class RealImageDataGen ():
 
         return label_img
 
-    def addPastedImages(self, canvas_img_file, canvas_img, paste_img_files,
+    def addPastedImages(self, canvas_img_file, canvas_img, paste_labels,
                         save_img_dir, save_label_dir, canvas_idx, tile_idx,
                         out_labels):
         """
         Adds paste images to the canvas file and saves it and the labels.
         :param canvas_img_file: canvas image filename to split
         :param canvas_img: canvas image to split
-        :param paste_img_files: paste image files.
+        :param paste_labels: paste image files.
         :param width_multiple: multiple of width to final image size.
         :param height_multiple: multiple of height to final image size.
         :param canvas_idx: canvas index.
@@ -486,7 +485,7 @@ class RealImageDataGen ():
             try:
                 paste_img_file_idx = self.paste_image_idx
                 # paste_img_file  = '/media/dcofer/Ubuntu_Data/drone-net/images/03012017-dji-phantom-flying-sky-260nw-554568589.jpg'
-                paste_label = paste_img_files[paste_img_file_idx]
+                paste_label = paste_labels[paste_img_file_idx]
                 paste_img_file = self.paste_image_dir + '/' + paste_label['filename']
 
                 logging.info("  Pasting in {}".format(paste_img_file))
@@ -518,7 +517,42 @@ class RealImageDataGen ():
                     paste_width = paste_height
                     paste_height = width_temp
 
-                # Scale the image first
+                # randomly change brightness and contract of foreground drone
+                bright_rand = 99 # np.random.randint(0, 100)
+                if bright_rand < self.bright_thresh:
+                    logging.info("    bright_rand: {}. Adjusting brightness/contrast.".format(bright_rand))
+
+                    utils.showAndWait('before bright', paste_img)
+
+                    bright_val = np.random.randint(-self.bright_max, self.bright_max)
+                    contrast_val = np.random.normal(1.0, self.contrast_max)
+                    if contrast_val < 0.5:
+                        contrast_val = 0.7
+                    if contrast_val > 1.5:
+                        contrast_val = 1.3;
+                    logging.info("    bright_val: {}".format(bright_val))
+                    logging.info("    contrast_val: {}".format(contrast_val))
+                    paste_img = cv2.convertScaleAbs(paste_img, alpha=contrast_val, beta=bright_val)
+
+                    utils.showAndWait('after bright', paste_img)
+                else:
+                    logging.info("    bright_rand: {}. Leaving image brightness/contrast alone".format(bright_rand))
+
+
+                # Now randomly add blur
+                blur_val = 2 #np.random.randint(0, 100)
+                if blur_val < self.blur_thresh:
+                    logging.info("    blur_val: {}. bluring image.".format(blur_val))
+
+                    blur_kernel = 5 # np.random.randint(0, self.blur_max)
+                    logging.info("    blur_kernel: {}".format(blur_kernel))
+                    if blur_kernel > 0:
+                        # blured_roi = cv2.GaussianBlur(merged_roi, (blur_val, blur_val), 0)
+                        paste_img = cv2.blur(paste_img, (blur_kernel, blur_kernel))
+                else:
+                    logging.info("    blur_val: {}. Leaving image un-blurred".format(blur_val))
+
+                # Scale the image
                 logging.info("min area: {}".format(min_area))
                 forced_min_area = min_area * self.force_scale
                 if self.force_scale > 0 and forced_min_area > self.min_paste_label_area:
@@ -549,15 +583,31 @@ class RealImageDataGen ():
                     logging.info("    paste_y: {}".format(paste_y))
                     logging.info("    last_x: {}".format(last_x))
 
-                    flip_val = np.random.randint(0, 100)
-                    if flip_val < 50:
-                        logging.info("    flip_val: {}. Flipping image.".format(flip_val))
+                    flip_horiz_val = np.random.randint(0, 100)
+                    if flip_horiz_val < 50:
+                        logging.info("    flip_horiz_val: {}. Flipping image horizontal.".format(flip_horiz_val))
                         paste_img = np.fliplr(paste_img)
                         if mask_img is not None:
                             mask_img = np.fliplr(mask_img)
-                        labels = self.flipLabels(labels, paste_width)
+                        labels = self.flipLabels(labels, paste_width, vertical=False)
+
+                        # paste_img = self.drawLabels(paste_img, labels)
+                        # utils.showAndWait('paste_img', paste_img)
                     else:
-                        logging.info("    flip_val: {}. Leaving image unflipped".format(flip_val))
+                        logging.info("    flip_horiz_val: {}. Leaving image horizontal unflipped".format(flip_horiz_val))
+
+                    # flip_vert_val = np.random.randint(0, 100)
+                    # if flip_vert_val < 50:
+                    #     logging.info("    flip_vert_val: {}. Flipping image vertical.".format(flip_vert_val))
+                    #     paste_img = np.flipud(paste_img)
+                    #     if mask_img is not None:
+                    #         mask_img = np.flipud(mask_img)
+                    #     labels = self.flipLabels(labels, paste_height, vertical=True)
+                    #
+                    #     paste_img = self.drawLabels(paste_img, labels)
+                    #     utils.showAndWait('paste_img', paste_img)
+                    # else:
+                    #     logging.info("    flip_vert_val: {}. Leaving image vertical unflipped".format(flip_vert_val))
 
                     where = np.array(np.where(paste_img))
 
@@ -576,7 +626,7 @@ class RealImageDataGen ():
 
                     all_labels.extend(labels)
 
-                    self.incrementNextPastedImageIndex(paste_img_files)
+                    self.incrementNextPastedImageIndex(paste_labels)
                 else:
                     done = True
                     logging.info("Paste image was too big, skipping to go to next one.")
@@ -595,13 +645,13 @@ class RealImageDataGen ():
 
         utils.showAndWait('canvas_img', canvas_img)
 
-        save_img_filename = '{}_{}.png'.format(canvas_idx, tile_idx)
+        save_img_filename = '{}_{}_{}.png'.format(self.file_prefix, canvas_idx, tile_idx)
         save_img_file = save_img_dir + '/{}'.format(save_img_filename)
         logging.info("saving image: {}".format(save_img_file))
         cv2.imwrite(save_img_file, canvas_img)
         #misc.imsave(save_file, canvas_img)
 
-        save_label_file = save_label_dir + '/{}_{}.txt'.format(canvas_idx, tile_idx)
+        save_label_file = save_label_dir + '/{}_{}_{}.txt'.format(self.file_prefix, canvas_idx, tile_idx)
         logging.info("saving lable: {}".format(save_label_file))
         # utils.saveDetectNetLabelFile('Car', labels, save_label_file)
         utils.saveYoloLabelFile(0, labels, save_label_file, img_width=canvas_width, img_height=canvas_height)
@@ -659,7 +709,7 @@ class RealImageDataGen ():
 
         return flipped_canvas_img
 
-    def splitCanvasIntoTiles(self, canvas_img_file, canvas_img, paste_img_files,
+    def splitCanvasIntoTiles(self, canvas_img_file, canvas_img, paste_labels,
                              save_img_dir, save_label_dir,
                              width_multiple, height_multiple,
                              canvas_idx, out_labels):
@@ -667,7 +717,7 @@ class RealImageDataGen ():
         Splits the canvas image into multiple image tiles and adds pasted images to it.
         :param canvas_img_file: canvas image filename to split
         :param canvas_img: canvas image to split
-        :param paste_img_files: paste image files.
+        :param paste_labels: paste image files.
         :param width_multiple: multiple of width to final image size.
         :param height_multiple: multiple of height to final image size.
         :param canvas_idx: canvas index.
@@ -708,21 +758,28 @@ class RealImageDataGen ():
                 flipped_canvas_img = self.randomFlipImage(cut_canvas_img)
                 if rotate_deg != 0:
                     rotated_canvas_img = self.rotateCanvasImage(flipped_canvas_img, rotate_deg)
+
+                    # This fills in any black spots from rotation with pixels from the original flipped image.
+                    where = np.array(np.where(rotated_canvas_img))
+
+                    flipped_canvas_img[where[0], where[1]] = rotated_canvas_img[where[0], where[1]]
+
+                    rotated_canvas_img = flipped_canvas_img
                 else:
                     rotated_canvas_img = flipped_canvas_img
 
-                self.addPastedImages(canvas_img_file, rotated_canvas_img, paste_img_files,
+                self.addPastedImages(canvas_img_file, rotated_canvas_img, paste_labels,
                                      save_img_dir, save_label_dir, canvas_idx, tile_idx, out_labels)
                 tile_idx += 1
 
         return tile_idx
 
-    def generateImages(self, canvas_img_files, paste_img_files, save_img_dir, save_label_dir):
+    def generateImages(self, canvas_img_files, paste_labels, save_img_dir, save_label_dir):
         """
         Intialize a generic detectnet data generator class. It finds the filenames for canvas and paste images, and
         labels, and splits them into train and validation spilts.
         :param canvas_img_files: canvas image files
-        :param paste_img_files: paste image files.
+        :param paste_labels: paste image files.
         :param save_img_dir: save image directory.
         :param save_label_dir: save label directory.
         """
@@ -731,7 +788,7 @@ class RealImageDataGen ():
 
         # Go through each canvas image and generate a set of images from it depending on its size.
         canvas_idx = 1
-        while self.all_paste_files_used_count < 4:
+        while self.all_paste_files_used_count < 3:
             for canvas_img_file in canvas_img_files:
                 # canvas_img_file = '/media/dcofer/Ubuntu_Data/drone_images/landscapes/vlcsnap-2018-12-21-1.png'
                 # canvas_img_orig = misc.imread(canvas_img_file)
@@ -769,7 +826,7 @@ class RealImageDataGen ():
                 width_multiple = float(canvas_img.shape[1])/self.final_img_width
                 height_multiple = float(canvas_img.shape[0])/self.final_img_height
 
-                tile_idx = self.splitCanvasIntoTiles(canvas_img_file, canvas_img, paste_img_files,
+                tile_idx = self.splitCanvasIntoTiles(canvas_img_file, canvas_img, paste_labels,
                                                      save_img_dir, save_label_dir,
                                                      width_multiple, height_multiple,
                                                      canvas_idx, out_labels)
@@ -782,7 +839,7 @@ class RealImageDataGen ():
                 # utils.showAndWait('flipped_canvas_img', flipped_canvas_img)
                 rotated_canvas_img = self.rotateCanvasImage(flipped_canvas_img)
 
-                self.addPastedImages(canvas_img_file, rotated_canvas_img, paste_img_files, save_img_dir,
+                self.addPastedImages(canvas_img_file, rotated_canvas_img, paste_labels, save_img_dir,
                                      save_label_dir, canvas_idx, tile_idx+1, out_labels)
                 canvas_idx += 1
 
@@ -799,18 +856,10 @@ class RealImageDataGen ():
         logging.info("Initializing image dataset generator ...")
 
         logging.info("Generating training images.")
-        self.generateImages(self.canvas_train_img_files,
-                             self.paste_train_img_files,
-                             self.train_img_dir,
-                             self.train_label_dir)
-
-        self.all_paste_files_used = False
-
-        logging.info("Generating validation images.")
-        self.generateImages(self.canvas_val_img_files,
-                             self.paste_val_img_files,
-                             self.val_img_dir,
-                             self.val_label_dir)
+        self.generateImages(self.canvas_img_files,
+                            self.paste_labels,
+                            self.train_img_dir,
+                            self.train_label_dir)
 
         logging.info("Finished generating images.")
 
