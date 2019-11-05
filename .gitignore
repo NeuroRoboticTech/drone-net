@@ -6,4 +6,5 @@ images/*_label.jpg
 .idea/*
 images_and_labels/*
 images_labeled/*
+unnorm-labels/*
 
