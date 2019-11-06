@@ -27,7 +27,7 @@ def processArgs():
                         help='Data dir containing paste images.')
     parser.add_argument('--paste_label_dir', type=str, required=True,
                         help='Data dir that contains paste labels.')
-    parser.add_argument('--save_image_dir', type=str, required=True,
+    parser.add_argument('--save_dir', type=str, required=True,
                         help='Data dir where sim images will be generated.')
     parser.add_argument('--min_paste_dim_size', type=int, default=40,
                         help='minimum size of any dimension of pasted image.')
@@ -62,7 +62,7 @@ class SimImageDataGen():
         self.canvas_image_dir = args.canvas_image_dir
         self.paste_image_dir = args.paste_image_dir
         self.paste_label_dir = args.paste_label_dir
-        self.save_dir = args.save_image_dir
+        self.save_dir = args.save_dir
         self.min_paste_dim_size = args.min_paste_dim_size
         self.max_paste_dim_size = args.max_paste_dim_size
         self.final_img_width = args.final_img_width
@@ -230,25 +230,25 @@ class SimImageDataGen():
             # If the top right coordinate is in the box of the previous label it overlaps
             top_left_x = x
             top_left_y = y
-            if self.inLabelBox(top_left_x, top_left_x, label_x, label_y, label_width, label_height):
+            if self.inLabelBox(top_left_x, top_left_y, label_x, label_y, label_width, label_height):
                 return True
 
             # If the top left coordinate is in the box of the previous label it overlaps
             top_right_x = x + width
             top_right_y = y
-            if self.inLabelBox(top_right_x, top_right_x, label_x, label_y, label_width, label_height):
+            if self.inLabelBox(top_right_x, top_right_y, label_x, label_y, label_width, label_height):
                 return True
 
             # If the bottom right coordinate is in the box of the previous label it overlaps
             bottom_left_x = x
-            bottom_left_x = y + height
-            if self.inLabelBox(bottom_left_x, bottom_left_x, label_x, label_y, label_width, label_height):
+            bottom_left_y= y + height
+            if self.inLabelBox(bottom_left_x, bottom_left_y, label_x, label_y, label_width, label_height):
                 return True
 
             # If the bottom left coordinate is in the box of the previous label it overlaps
             bottom_right_x = x + width
-            bottom_right_x = y + height
-            if self.inLabelBox(bottom_right_x, bottom_right_x, label_x, label_y, label_width, label_height):
+            bottom_right_y = y + height
+            if self.inLabelBox(bottom_right_x, bottom_right_y, label_x, label_y, label_width, label_height):
                 return True
 
         return False
@@ -335,7 +335,7 @@ class SimImageDataGen():
             if paste_label_img.shape[0] != paste_height or paste_label_img.shape[1] != paste_width:
                 raise RuntimeError("Paste label dims do not match paste image.")
 
-            new_paste_width, new_paste_height = 200, 200  #self.calcNewPasteDims(paste_width, paste_height)
+            new_paste_width, new_paste_height = self.calcNewPasteDims(paste_width, paste_height)
 
             logging.info("    new_paste_width: {}".format(new_paste_width))
             logging.info("    new_paste_height: {}".format(new_paste_height))
