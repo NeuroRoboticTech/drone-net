@@ -136,8 +136,8 @@ class RealImageDataGen ():
         if len(self.canvas_img_files) <= 0:
             raise RuntimeError("No canvas image files were found")
 
-        #np.random.shuffle(self.canvas_img_files)
-        #np.random.shuffle(self.paste_labels)
+        np.random.shuffle(self.canvas_img_files)
+        np.random.shuffle(self.paste_labels)
 
 
     def loadPasteImage(self, filename, cut_height=0):
@@ -188,6 +188,9 @@ class RealImageDataGen ():
             self.paste_image_idx = 0
             self.all_paste_files_used_count += 1
             self.force_scale = self.force_scale - self.all_paste_files_used * 0.25
+
+            np.random.shuffle(self.canvas_img_files)
+            np.random.shuffle(self.paste_labels)
 
             if self.all_paste_files_used_count == 1:
                 self.blur_thresh = 50
@@ -392,25 +395,6 @@ class RealImageDataGen ():
         else:
             return 0.0
 
-    def drawLabels(self, img_in, labels):
-
-        img = img_in.copy()
-
-        for l in labels:
-            x_max = l['x'] + l['width']
-            y_max = l['y'] + l['height']
-
-            top_left = (int(l['x']), int(l['y']))
-            top_right = (int(x_max), int(l['y']))
-            bottom_right = (int(x_max), int(y_max))
-            bottom_left =(int(l['x']), int(y_max))
-
-            img = cv2.line(img, top_left, top_right, color=(0, 0, 255), thickness=3)
-            img = cv2.line(img, top_right, bottom_right, color=(0, 0, 255), thickness=3)
-            img = cv2.line(img, bottom_right, bottom_left, color=(0, 0, 255), thickness=3)
-            img = cv2.line(img, bottom_left, top_left, color=(0, 0, 255), thickness=3)
-
-        return img
 
     def loadMaskImage(self, paste_img_file, cut_height=0):
 
@@ -518,11 +502,11 @@ class RealImageDataGen ():
                     paste_height = width_temp
 
                 # randomly change brightness and contract of foreground drone
-                bright_rand = 99 # np.random.randint(0, 100)
+                bright_rand = np.random.randint(0, 100)
                 if bright_rand < self.bright_thresh:
                     logging.info("    bright_rand: {}. Adjusting brightness/contrast.".format(bright_rand))
 
-                    utils.showAndWait('before bright', paste_img)
+                    # utils.showAndWait('before bright', paste_img)
 
                     bright_val = np.random.randint(-self.bright_max, self.bright_max)
                     contrast_val = np.random.normal(1.0, self.contrast_max)
@@ -534,17 +518,17 @@ class RealImageDataGen ():
                     logging.info("    contrast_val: {}".format(contrast_val))
                     paste_img = cv2.convertScaleAbs(paste_img, alpha=contrast_val, beta=bright_val)
 
-                    utils.showAndWait('after bright', paste_img)
+                    # utils.showAndWait('after bright', paste_img)
                 else:
                     logging.info("    bright_rand: {}. Leaving image brightness/contrast alone".format(bright_rand))
 
 
                 # Now randomly add blur
-                blur_val = 2 #np.random.randint(0, 100)
+                blur_val = np.random.randint(0, 100)
                 if blur_val < self.blur_thresh:
                     logging.info("    blur_val: {}. bluring image.".format(blur_val))
 
-                    blur_kernel = 5 # np.random.randint(0, self.blur_max)
+                    blur_kernel = np.random.randint(0, self.blur_max)
                     logging.info("    blur_kernel: {}".format(blur_kernel))
                     if blur_kernel > 0:
                         # blured_roi = cv2.GaussianBlur(merged_roi, (blur_val, blur_val), 0)
@@ -591,7 +575,7 @@ class RealImageDataGen ():
                             mask_img = np.fliplr(mask_img)
                         labels = self.flipLabels(labels, paste_width, vertical=False)
 
-                        # paste_img = self.drawLabels(paste_img, labels)
+                        # paste_img = utils.drawLabels(paste_img, labels)
                         # utils.showAndWait('paste_img', paste_img)
                     else:
                         logging.info("    flip_horiz_val: {}. Leaving image horizontal unflipped".format(flip_horiz_val))
@@ -604,7 +588,7 @@ class RealImageDataGen ():
                     #         mask_img = np.flipud(mask_img)
                     #     labels = self.flipLabels(labels, paste_height, vertical=True)
                     #
-                    #     paste_img = self.drawLabels(paste_img, labels)
+                    #     paste_img = utils.drawLabels(paste_img, labels)
                     #     utils.showAndWait('paste_img', paste_img)
                     # else:
                     #     logging.info("    flip_vert_val: {}. Leaving image vertical unflipped".format(flip_vert_val))
@@ -641,9 +625,9 @@ class RealImageDataGen ():
             return
 
         canvas_img = np.array(canvas_img)
-        canvas_img = self.drawLabels(canvas_img, all_labels)
+        canvas_img = utils.drawLabels(canvas_img, all_labels)
 
-        utils.showAndWait('canvas_img', canvas_img)
+        # utils.showAndWait('canvas_img', canvas_img)
 
         save_img_filename = '{}_{}_{}.png'.format(self.file_prefix, canvas_idx, tile_idx)
         save_img_file = save_img_dir + '/{}'.format(save_img_filename)
@@ -788,7 +772,7 @@ class RealImageDataGen ():
 
         # Go through each canvas image and generate a set of images from it depending on its size.
         canvas_idx = 1
-        while self.all_paste_files_used_count < 3:
+        while self.all_paste_files_used_count < 4:
             for canvas_img_file in canvas_img_files:
                 # canvas_img_file = '/media/dcofer/Ubuntu_Data/drone_images/landscapes/vlcsnap-2018-12-21-1.png'
                 # canvas_img_orig = misc.imread(canvas_img_file)
@@ -842,6 +826,11 @@ class RealImageDataGen ():
                 self.addPastedImages(canvas_img_file, rotated_canvas_img, paste_labels, save_img_dir,
                                      save_label_dir, canvas_idx, tile_idx+1, out_labels)
                 canvas_idx += 1
+
+                logging.info("Canvas Idx: {}".format(canvas_idx))
+
+                if self.all_paste_files_used_count > 3:
+                    break
 
         json_txt = json.dumps(out_labels)
         out_file = save_img_dir + "/output_labels.json"

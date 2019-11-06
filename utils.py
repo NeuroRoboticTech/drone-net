@@ -266,3 +266,23 @@ def saveIndexImage(file_name, img):
 
     newimage.save(file_name)
     # print("Saved mask file: " + file_name)
+
+def drawLabels(img_in, labels):
+
+    img = img_in.copy()
+
+    for l in labels:
+        x_max = l['x'] + l['width']
+        y_max = l['y'] + l['height']
+
+        top_left = (int(l['x']), int(l['y']))
+        top_right = (int(x_max), int(l['y']))
+        bottom_right = (int(x_max), int(y_max))
+        bottom_left =(int(l['x']), int(y_max))
+
+        img = cv2.line(img, top_left, top_right, color=(0, 0, 255), thickness=3)
+        img = cv2.line(img, top_right, bottom_right, color=(0, 0, 255), thickness=3)
+        img = cv2.line(img, bottom_right, bottom_left, color=(0, 0, 255), thickness=3)
+        img = cv2.line(img, bottom_left, top_left, color=(0, 0, 255), thickness=3)
+
+    return img

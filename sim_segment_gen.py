@@ -89,7 +89,8 @@ class SimImageDataGen():
         label_img = np.zeros([label_img_new.shape[0], label_img_new.shape[1], 3], dtype=np.uint8)
 
         # Find contours in original image.
-        (_, contours, _) = cv2.findContours(label_img_new, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours = cv2.findContours(label_img_new, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # (_, contours, _) = cv2.findContours(label_img_new, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         mask_color = [0, 0, 255]
         contour_idx = -1
