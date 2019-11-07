@@ -682,17 +682,6 @@ class RealImageDataGen ():
 
         return rotated_canvas_img
 
-    def randomFlipImage(self, img_in):
-        flip_val = np.random.randint(0, 100)
-        if flip_val < 50:
-            logging.info("  flip_val: {}. Flipping image.".format(flip_val))
-            flipped_canvas_img = np.fliplr(img_in)
-        else:
-            logging.info("  flip_val: {}. Leaving canvas unflipped".format(flip_val))
-            flipped_canvas_img = img_in
-
-        return flipped_canvas_img
-
     def splitCanvasIntoTiles(self, canvas_img_file, canvas_img, paste_labels,
                              save_img_dir, save_label_dir,
                              width_multiple, height_multiple,
@@ -739,7 +728,7 @@ class RealImageDataGen ():
 
                 cut_canvas_img = canvas_img[cut_y:(cut_y+tile_height), cut_x:(cut_x+tile_width)].copy()
 
-                flipped_canvas_img = self.randomFlipImage(cut_canvas_img)
+                flipped_canvas_img = utils.randomFlipImage(cut_canvas_img)
                 if rotate_deg != 0:
                     rotated_canvas_img = self.rotateCanvasImage(flipped_canvas_img, rotate_deg)
 
@@ -833,7 +822,7 @@ class RealImageDataGen ():
                     break
 
         json_txt = json.dumps(out_labels)
-        out_file = save_img_dir + "/output_labels.json"
+        out_file = save_img_dir + "/real_output_labels.json"
         with open(out_file, 'w') as f:
             f.write(json_txt)
 
@@ -853,6 +842,8 @@ class RealImageDataGen ():
         logging.info("Finished generating images.")
 
 if __name__ == "__main__":
+    np.random.seed(long(time.time()))
+
     utils.setupLogging('real_image_gen')
 
     args = processArgs()

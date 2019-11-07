@@ -170,12 +170,12 @@ def loadYoloLabels(label_file):
 def saveYoloLabelFile(label, list, filename, img_width, img_height):
     with open(filename, 'w') as f:
         for l in list:
-            x_center = l['x'] / img_width
-            y_center = l['y'] / img_height
-            width = l['width'] / img_width
-            height = l['height'] / img_height
+            x_center = float(l['x']) / float(img_width)
+            y_center = float(l['y']) / float(img_height)
+            width = float(l['width']) / float(img_width)
+            height = float(l['height']) / float(img_height)
 
-            f.write("{0} {0:.6f} {0:.6f} {0:.6f} {0:.6f}\n".format(label, x_center, y_center, width, height))
+            f.write("{} {:.6f} {:.6f} {:.6f} {:.6f}\n".format(label, x_center, y_center, width, height))
 
 
 def rotate(origin, point, angle_deg):
@@ -286,3 +286,25 @@ def drawLabels(img_in, labels):
         img = cv2.line(img, bottom_left, top_left, color=(0, 0, 255), thickness=3)
 
     return img
+
+def randomFlipImage(img_in, flip_horizontal=True, flip_vertical=True,
+                    horiz_perc=50, vert_perc=10):
+    if flip_horizontal:
+        flip_val = np.random.randint(0, 100)
+        if flip_val < horiz_perc:
+            logging.info("  flip_val: {}. Flipping image horizontal.".format(flip_val))
+            flipped_canvas_img = np.fliplr(img_in)
+        else:
+            logging.info("  flip_val: {}. Leaving canvas  horizontal unflipped".format(flip_val))
+            flipped_canvas_img = img_in
+
+    if flip_vertical:
+        flip_val = np.random.randint(0, 100)
+        if flip_val < vert_perc:
+            logging.info("  flip_val: {}. Flipping image vertical.".format(flip_val))
+            flipped_canvas_img = np.flipud(flipped_canvas_img)
+        else:
+            logging.info("  flip_val: {}. Leaving canvas unflipped vertical".format(flip_val))
+            flipped_canvas_img = flipped_canvas_img
+
+    return flipped_canvas_img

@@ -9,6 +9,7 @@ import shutil
 import time
 import math
 from geometry import *
+import json
 
 import numpy as np
 import cv2
@@ -38,10 +39,8 @@ def processArgs():
                         help='height of the final produced image.')
     parser.add_argument('--final_img_height', type=int, default=608,
                         help='width of the final produced image.')
-    parser.add_argument('--min_pasted_per_canvas', type=int, default=0,
-                        help='minimum number of pasted images per canvas.')
-    parser.add_argument('--max_pasted_per_canvas', type=int, default=6,
-                        help='maximum number of pasted images per canvas.')
+    parser.add_argument('--max_canvas_images', type=int, default=-1,
+                        help='If set to non-negative value it will only get that number of canvas images.')
 
     args, unknown = parser.parse_known_args()
     return args
@@ -62,12 +61,13 @@ class SimImageDataGen():
         self.save_dir = args.save_dir
         self.final_img_width = args.final_img_width
         self.final_img_height = args.final_img_height
-        self.min_paste_dim_size = 40
+        self.min_paste_dim_size = 30
         self.max_paste_dim_size = int(args.final_img_width * 0.9)
         self.max_paste_rotation = args.max_paste_rotation
         self.max_canvas_rotation = args.max_canvas_rotation
-        self.min_pasted_per_canvas = args.min_pasted_per_canvas
-        self.max_pasted_per_canvas = args.max_pasted_per_canvas
+        self.min_pasted_per_canvas = 0
+        self.max_pasted_per_canvas = 3
+        self.max_canvas_images = args.max_canvas_images
 
         self.canvas_img_files = []
 
@@ -80,11 +80,12 @@ class SimImageDataGen():
         self.paste_image_idx = 0
         self.all_paste_files_used_count = 0
 
-        self.blur_thresh = 20
-        self.bright_thresh = 70
-        self.bright_max = 50
-        self.contrast_max = 0.1
-        self.blur_max = 6
+        # Initially use no blur or bright/contrast. Add that on next go around.
+        self.blur_thresh = 0
+        self.bright_thresh = 0
+        self.bright_max = 25
+        self.contrast_max = 0.02
+        self.blur_max = 4
 
         self.file_prefix = "sim"
 
@@ -128,8 +129,15 @@ class SimImageDataGen():
         if len(self.paste_img_files) <= 0:
             raise RuntimeError("No pate image files were found")
 
-        # np.random.shuffle(self.canvas_img_files)
-        # np.random.shuffle(self.paste_img_files)
+        if self.max_canvas_images > 0:
+            if self.max_canvas_images > len(self.canvas_img_files):
+                raise RuntimeError("Number of canvas images is less than max count: {} > {}".format(
+                    len(self.canvas_img_files), self.max_canvas_images))
+
+            self.canvas_img_files = self.canvas_img_files[:self.max_canvas_images]
+
+        np.random.shuffle(self.canvas_img_files)
+        np.random.shuffle(self.paste_img_files)
 
     def loadPasteImage(self, filename):
         """ Loads a paste image and mask.
@@ -168,27 +176,50 @@ class SimImageDataGen():
 
             self.max_paste_dim_size = self.max_paste_dim_size * 0.65
 
-            # np.random.shuffle(self.canvas_img_files)
-            # np.random.shuffle(self.paste_img_files)
+            np.random.shuffle(self.canvas_img_files)
+            np.random.shuffle(self.paste_img_files)
 
             if self.all_paste_files_used_count == 1:
-                self.blur_thresh = 50
+                self.blur_thresh = 70
                 self.bright_thresh = 70
                 self.bright_max = 50
                 self.contrast_max = 0.08
                 self.blur_max = 5
+                self.max_pasted_per_canvas = 3
             elif self.all_paste_files_used_count == 2:
-                self.blur_thresh = 40
-                self.bright_thresh = 50
+                self.blur_thresh = 80
+                self.bright_thresh = 80
                 self.bright_max = 40
                 self.contrast_max = 0.05
                 self.blur_max = 3
-            elif self.all_paste_files_used_count == 3:
-                self.blur_thresh = 30
-                self.bright_thresh = 40
+                self.max_pasted_per_canvas = 4
+            elif self.all_paste_files_used_count == 3 or \
+                self.all_paste_files_used_count == 4 or \
+                self.all_paste_files_used_count == 5:
+                self.blur_thresh = 90
+                self.bright_thresh = 90
                 self.bright_max = 30
                 self.contrast_max = 0.03
-                self.blur_max = 2
+                self.blur_max = 3
+                self.max_pasted_per_canvas = 4
+            elif self.all_paste_files_used_count == 6:
+                self.blur_thresh = 100
+                self.bright_thresh = 100
+                self.bright_max = 70
+                self.contrast_max = 0.2
+                self.blur_max = 5
+                self.max_pasted_per_canvas = 2
+                self.max_paste_dim_size = int(self.final_img_width * 0.8)
+            elif self.all_paste_files_used_count == 7:
+                self.blur_thresh = 100
+                self.bright_thresh = 100
+                self.bright_max = 80
+                self.contrast_max = 0.15
+                self.blur_max = 6
+                self.max_pasted_per_canvas = 3
+            elif self.all_paste_files_used_count == 12:
+                self.max_paste_dim_size = int(self.final_img_width * 0.8)
+                self.all_paste_files_used_count = 0
 
         return self.paste_image_idx
 
@@ -199,6 +230,9 @@ class SimImageDataGen():
         :param paste_height: height
         :return: new width and height
         """
+
+        if self.min_paste_dim_size >= self.max_paste_dim_size:
+            logging.warning("Mismatch in paste dim sizes")
 
         paste_rand_height = np.random.randint(self.min_paste_dim_size, self.max_paste_dim_size)
         logging.info("  paste_rand_dim: {}".format(paste_rand_height))
@@ -273,7 +307,16 @@ class SimImageDataGen():
         paste_x = 0
         paste_y = 0
         count = 0
+
+        if paste_width >= canvas_width or paste_height >= canvas_height:
+            logging.info("paste dim greater than canvas: ".format(canvas_width - paste_width, canvas_height - paste_height))
+            logging.info("  canvas: ({}, {}) ".format(canvas_width, canvas_height))
+            logging.info("  paste:  ({}, {}) ".format(paste_width, paste_height))
+
+            return -1, -1
+
         while overlapping and count < 15:
+            logging.info("paste_x dims: ({}, {})".format(canvas_width - paste_width, canvas_height - paste_height))
             paste_x = np.random.randint(0, canvas_width - paste_width)
             paste_y = np.random.randint(0, canvas_height - paste_height)
 
@@ -293,7 +336,8 @@ class SimImageDataGen():
         return paste_x, paste_y
 
     def addPastedImages(self, canvas_img_file, canvas_img, paste_img_files,
-                        paste_label_dir, save_img_dir, save_label_dir, canvas_idx, tile_idx):
+                        paste_label_dir, save_img_dir, save_label_dir, canvas_idx,
+                        tile_idx, out_labels):
         """
         Adds paste images to the canvas file and saves it and the labels.
         :param canvas_img_file: canvas image filename to split
@@ -307,7 +351,8 @@ class SimImageDataGen():
 
         canvas_width = canvas_img.shape[1]
         canvas_height = canvas_img.shape[0]
-        num_pastes = 5 #np.random.randint(self.min_pasted_per_canvas, self.max_pasted_per_canvas)
+
+        num_pastes = np.random.randint(self.min_pasted_per_canvas, self.max_pasted_per_canvas)
         labels = []
 
         if canvas_height != self.final_img_height or canvas_width != self.final_img_width:
@@ -414,7 +459,7 @@ class SimImageDataGen():
             if bright_rand < self.blur_thresh:
                 logging.info("    bright_rand: {}. Adjusting brightness/contrast.".format(bright_rand))
 
-                bright_val = np.random.randint(-self.blur_max, self.blur_max)
+                bright_val = np.random.randint(-self.bright_max, self.bright_max)
                 contrast_val = np.random.normal(1.0, self.contrast_max)
                 if contrast_val < 0.5:
                     contrast_val = 0.7
@@ -435,13 +480,8 @@ class SimImageDataGen():
             # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/foreground_roi.png', foreground_roi)
 
             # Put them together
-            where = np.array(np.where(rotated_paste_img))
-
-            background_roi[where[0], where[1]] = foreground_roi[where[0], where[1]]
-            merged_roi = background_roi
-
-            # merged_roi = cv2.add(background_roi, foreground_roi)
-            # utils.showAndWait('merged_roi', merged_roi)
+            merged_roi = cv2.add(background_roi, foreground_roi)
+            # showAndWait('merged_roi', merged_roi)
             # cv2.imwrite('/home/mfp/drone-net/test/merged_roi.png', merged_roi)
 
 
@@ -450,7 +490,7 @@ class SimImageDataGen():
             if blur_rand < self.blur_thresh:
                 logging.info("    blur_rand: {}. bluring image.".format(blur_rand))
 
-                blur_val = np.random.randint(0, self.blur_max)
+                blur_val = np.random.randint(1, self.blur_max)
                 logging.info("    blur_val: {}".format(blur_val))
                 if blur_val > 0:
                     # blured_roi = cv2.GaussianBlur(merged_roi, (blur_val, blur_val), 0)
@@ -494,21 +534,26 @@ class SimImageDataGen():
 
             self.incrementNextPastedImageIndex(paste_img_files)
 
-        canvas_img = utils.drawLabels(canvas_img, labels)
-        utils.showAndWait('canvas_img', canvas_img)
+        # canvas_img = utils.drawLabels(canvas_img, labels)
+        # utils.showAndWait('canvas_img', canvas_img)
 
         save_img_file = save_img_dir + '/{}_{}_{}.png'.format(self.file_prefix, canvas_idx, tile_idx)
         cv2.imwrite(save_img_file, canvas_img)
         logging.info("saving image: {}".format(save_img_file))
         #misc.imsave(save_file, canvas_img)
 
-        save_label_file = save_label_dir + '/()_{}_{}.txt'.format(self.file_prefix, canvas_idx, tile_idx)
+        save_label_file = save_label_dir + '/{}_{}_{}.txt'.format(self.file_prefix, canvas_idx, tile_idx)
         utils.saveYoloLabelFile(0, labels, save_label_file, canvas_width, canvas_height)
         logging.info("saving lable: {}".format(save_label_file))
         #
         # save_label_file = save_label_dir + '/()_{}_{}_label.png'.format(self.file_prefix, canvas_idx, tile_idx)
         # cv2.imwrite(save_label_file, canvas_label)
         # logging.info("saving lable image: {}".format(save_label_file))
+
+        json_label = {"class": "image",
+                      "filename": save_img_file,
+                      "annotations": labels}
+        out_labels.append(json_label)
 
     def getForcedRandomRotationValue(self):
 
@@ -540,20 +585,9 @@ class SimImageDataGen():
 
         return rotated_canvas_img
 
-    def randomFlipImage(self, img_in):
-        flip_val = np.random.randint(0, 100)
-        if flip_val < 50:
-            logging.info("  flip_val: {}. Flipping image.".format(flip_val))
-            flipped_canvas_img = np.fliplr(img_in)
-        else:
-            logging.info("  flip_val: {}. Leaving canvas unflipped".format(flip_val))
-            flipped_canvas_img = img_in
-
-        return flipped_canvas_img
-
     def splitCanvasIntoTiles(self, canvas_img_file, canvas_img, paste_img_files,
                              paste_label_dir, save_img_dir, save_label_dir,
-                             width_multiple, height_multiple, canvas_idx):
+                             width_multiple, height_multiple, canvas_idx, out_labels):
         """
         Splits the canvas image into multiple image tiles and adds pasted images to it.
         :param canvas_img_file: canvas image filename to split
@@ -596,7 +630,7 @@ class SimImageDataGen():
 
                 cut_canvas_img = canvas_img[cut_y:(cut_y+tile_height), cut_x:(cut_x+tile_width)].copy()
 
-                flipped_canvas_img = self.randomFlipImage(cut_canvas_img)
+                flipped_canvas_img = utils.randomFlipImage(cut_canvas_img)
                 if rotate_deg != 0:
                     rotated_canvas_img = self.rotateCanvasImage(flipped_canvas_img, rotate_deg)
 
@@ -610,7 +644,8 @@ class SimImageDataGen():
                     rotated_canvas_img = flipped_canvas_img
 
                 self.addPastedImages(canvas_img_file, rotated_canvas_img, paste_img_files,
-                                     paste_label_dir, save_img_dir, save_label_dir, canvas_idx, tile_idx)
+                                     paste_label_dir, save_img_dir, save_label_dir, canvas_idx,
+                                     tile_idx, out_labels)
                 tile_idx += 1
 
         return tile_idx
@@ -626,75 +661,80 @@ class SimImageDataGen():
         :param save_label_dir: save label directory.
         """
 
+        out_labels = []
         # Go through each canvas image and generate a set of images from it depending on its size.
         self.paste_image_idx = 0
         canvas_idx = 1
-        while self.all_paste_files_used_count < 4:
-            for canvas_img_file in canvas_img_files:
-                # canvas_img_file = '/media/dcofer/Ubuntu_Data/drone_images/landscapes/vlcsnap-2018-12-21-1.png'
-                # canvas_img_orig = misc.imread(canvas_img_file)
-                canvas_img_orig = cv2.imread(canvas_img_file)
-                # showAndWait('canvas_img_orig', canvas_img_orig)
+        for canvas_img_file in canvas_img_files:
+            # canvas_img_file = '/media/dcofer/Ubuntu_Data/drone_images/landscapes/vlcsnap-2018-12-21-1.png'
+            # canvas_img_orig = misc.imread(canvas_img_file)
+            canvas_img_orig = cv2.imread(canvas_img_file)
+            # showAndWait('canvas_img_orig', canvas_img_orig)
 
-                logging.info("Processing file {}. Shape {}".format(canvas_img_file, canvas_img_orig.shape))
+            logging.info("Processing file {}. Shape {}".format(canvas_img_file, canvas_img_orig.shape))
 
-                width_multiple = float(canvas_img_orig.shape[1])/self.final_img_width
-                height_multiple = float(canvas_img_orig.shape[0])/self.final_img_height
+            width_multiple = float(canvas_img_orig.shape[1])/self.final_img_width
+            height_multiple = float(canvas_img_orig.shape[0])/self.final_img_height
 
-                # If one of the dimensions are less than our final values then just use this image once as is.
-                if width_multiple < 1 or height_multiple < 1:
-                    ratio = float(self.final_img_width) / self.final_img_height
+            # If one of the dimensions are less than our final values then just use this image once as is.
+            if width_multiple < 1 or height_multiple < 1:
+                ratio = float(self.final_img_width) / self.final_img_height
 
-                    # Use the dimension that is smallest and scale the image up so it is greater than final image height
-                    if width_multiple < height_multiple:
-                        new_height = int(canvas_img_orig.shape[0] * ratio)
-                        if new_height < self.final_img_height:
-                            new_height = self.final_img_height
-                        canvas_img = resize(canvas_img_orig, [new_height, self.final_img_width])
-                    else:
-                        new_width = int(canvas_img_orig.shape[1] * ratio)
-                        if new_width < self.final_img_width:
-                            new_width = self.final_img_width
-                        canvas_img = resize(canvas_img_orig, [self.final_img_height, new_width])
+                # Use the dimension that is smallest and scale the image up so it is greater than final image height
+                if width_multiple < height_multiple:
+                    new_height = int(canvas_img_orig.shape[0] * ratio)
+                    if new_height < self.final_img_height:
+                        new_height = self.final_img_height
+                    canvas_img = resize(canvas_img_orig, [new_height, self.final_img_width])
                 else:
-                    canvas_img = canvas_img_orig
+                    new_width = int(canvas_img_orig.shape[1] * ratio)
+                    if new_width < self.final_img_width:
+                        new_width = self.final_img_width
+                    canvas_img = resize(canvas_img_orig, [self.final_img_height, new_width])
+            else:
+                canvas_img = canvas_img_orig
 
-                canvas_img = img_as_ubyte(canvas_img.copy())
-                # showAndWait('canvas_img', canvas_img)
-                # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/canvas_img.png', canvas_img)
+            canvas_img = img_as_ubyte(canvas_img.copy())
+            # showAndWait('canvas_img', canvas_img)
+            # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/canvas_img.png', canvas_img)
 
-                # Now recompute the multiple after potential resizing
-                width_multiple = float(canvas_img.shape[1])/self.final_img_width
-                height_multiple = float(canvas_img.shape[0])/self.final_img_height
+            # Now recompute the multiple after potential resizing
+            width_multiple = float(canvas_img.shape[1])/self.final_img_width
+            height_multiple = float(canvas_img.shape[0])/self.final_img_height
 
-                tile_idx = self.splitCanvasIntoTiles(canvas_img_file, canvas_img, paste_img_files,
-                                                     paste_label_dir, save_img_dir, save_label_dir,
-                                                     width_multiple, height_multiple, canvas_idx)
+            tile_idx = self.splitCanvasIntoTiles(canvas_img_file, canvas_img, paste_img_files,
+                                                 paste_label_dir, save_img_dir, save_label_dir,
+                                                 width_multiple, height_multiple, canvas_idx,
+                                                 out_labels)
 
-                # Now resize the entire image into the final size and add paste images.
-                whole_canvas_img = img_as_ubyte(resize(canvas_img_orig, [self.final_img_height, self.final_img_width]))
+            # Now resize the entire image into the final size and add paste images.
+            whole_canvas_img = img_as_ubyte(resize(canvas_img_orig, [self.final_img_height, self.final_img_width]))
 
-                # showAndWait('whole_canvas_img', whole_canvas_img)
-                flipped_canvas_img = np.fliplr(whole_canvas_img)
-                # showAndWait('flipped_canvas_img', flipped_canvas_img)
-                rotated_canvas_img = self.rotateCanvasImage(flipped_canvas_img)
+            # showAndWait('whole_canvas_img', whole_canvas_img)
+            flipped_canvas_img = np.fliplr(whole_canvas_img)
+            # showAndWait('flipped_canvas_img', flipped_canvas_img)
+            rotated_canvas_img = self.rotateCanvasImage(flipped_canvas_img)
 
-                # This fills in any black spots from rotation with pixels from the original flipped image.
-                where = np.array(np.where(rotated_canvas_img))
+            # This fills in any black spots from rotation with pixels from the original flipped image.
+            where = np.array(np.where(rotated_canvas_img))
 
-                flipped_canvas_img[where[0], where[1]] = rotated_canvas_img[where[0], where[1]]
+            flipped_canvas_img[where[0], where[1]] = rotated_canvas_img[where[0], where[1]]
 
-                rotated_canvas_img = flipped_canvas_img
+            rotated_canvas_img = flipped_canvas_img
 
-                self.addPastedImages(canvas_img_file, rotated_canvas_img, paste_img_files,
-                                     paste_label_dir, save_img_dir,
-                                     save_label_dir, canvas_idx, tile_idx+1)
-                canvas_idx += 1
+            self.addPastedImages(canvas_img_file, rotated_canvas_img, paste_img_files,
+                                 paste_label_dir, save_img_dir,
+                                 save_label_dir, canvas_idx, tile_idx+1,
+                                 out_labels)
+            canvas_idx += 1
 
-                logging.info("Canvas Idx: {}".format(canvas_idx))
+            logging.info("Canvas Idx: {}".format(canvas_idx))
 
-                if self.all_paste_files_used_count >= 3:
-                    break
+        logging.info("writing json label files")
+        json_txt = json.dumps(out_labels)
+        out_file = save_img_dir + "/sim_output_labels.json"
+        with open(out_file, 'w') as f:
+            f.write(json_txt)
 
 
     def generate(self):
@@ -715,6 +755,8 @@ class SimImageDataGen():
         logging.info("Finished generating images.")
 
 if __name__ == "__main__":
+    np.random.seed(long(time.time()))
+
     utils.setupLogging('sim_image_gen')
 
     args = processArgs()
