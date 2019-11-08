@@ -537,7 +537,7 @@ class SimImageDataGen():
         # canvas_img = utils.drawLabels(canvas_img, labels)
         # utils.showAndWait('canvas_img', canvas_img)
 
-        save_img_file = save_img_dir + '/{}_{}_{}.png'.format(self.file_prefix, canvas_idx, tile_idx)
+        save_img_file = save_img_dir + '/{}_{}_{}.jpg'.format(self.file_prefix, canvas_idx, tile_idx)
         cv2.imwrite(save_img_file, canvas_img)
         logging.info("saving image: {}".format(save_img_file))
         #misc.imsave(save_file, canvas_img)

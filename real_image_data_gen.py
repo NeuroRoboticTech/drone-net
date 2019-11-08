@@ -30,7 +30,7 @@ def processArgs():
                         help='dir where data will be generated.')
     parser.add_argument('--paste_label_json', type=str, required=True,
                         help='paste label json file.')
-    parser.add_argument('--min_paste_label_area', type=int, default=800,
+    parser.add_argument('--min_paste_label_area', type=int, default=250,
                         help='minimum size of smallest dimension of pasted image.')
     parser.add_argument('--max_paste_rotation', type=int, default=80,
                         help='maximum rotation that can be randomly added to pasted image.')
@@ -40,6 +40,8 @@ def processArgs():
                         help='height of the final produced image.')
     parser.add_argument('--final_img_height', type=int, default=608,
                         help='width of the final produced image.')
+    parser.add_argument('--max_canvas_images', type=int, default=-1,
+                        help='If set to non-negative value it will only get that number of canvas images.')
 
     args, unknown = parser.parse_known_args()
     return args
@@ -62,6 +64,7 @@ class RealImageDataGen ():
         self.final_img_height = args.final_img_height
         self.max_paste_rotation = args.max_paste_rotation
         self.max_canvas_rotation = args.max_canvas_rotation
+        self.max_canvas_images = args.max_canvas_images
 
         self.root_train_img_dir = ""
 
@@ -76,7 +79,7 @@ class RealImageDataGen ():
 
         self.force_scale = -1.0  # When -1 it means use default image label size.
         self.blur_thresh = 10
-        self.bright_thresh = 70
+        self.bright_thresh = 10
         self.bright_max = 50
         self.contrast_max = 0.1
         self.blur_max = 5
@@ -136,6 +139,13 @@ class RealImageDataGen ():
         if len(self.canvas_img_files) <= 0:
             raise RuntimeError("No canvas image files were found")
 
+        if self.max_canvas_images > 0:
+            if self.max_canvas_images > len(self.canvas_img_files):
+                raise RuntimeError("Number of canvas images is less than max count: {} > {}".format(
+                    len(self.canvas_img_files), self.max_canvas_images))
+
+            self.canvas_img_files = self.canvas_img_files[:self.max_canvas_images]
+
         np.random.shuffle(self.canvas_img_files)
         np.random.shuffle(self.paste_labels)
 
@@ -187,29 +197,57 @@ class RealImageDataGen ():
         if self.paste_image_idx >= len(paste_labels):
             self.paste_image_idx = 0
             self.all_paste_files_used_count += 1
-            self.force_scale = self.force_scale - self.all_paste_files_used * 0.25
+
+            if self.force_scale <=0:
+                self.force_scale = 1.0
+
+            self.force_scale = self.force_scale * 0.75
 
             np.random.shuffle(self.canvas_img_files)
             np.random.shuffle(self.paste_labels)
 
             if self.all_paste_files_used_count == 1:
-                self.blur_thresh = 50
+                self.blur_thresh = 70
                 self.bright_thresh = 70
                 self.bright_max = 50
                 self.contrast_max = 0.08
-                self.blur_max = 4
+                self.blur_max = 5
             elif self.all_paste_files_used_count == 2:
-                self.blur_thresh = 40
-                self.bright_thresh = 50
+                self.blur_thresh = 80
+                self.bright_thresh = 80
                 self.bright_max = 40
                 self.contrast_max = 0.05
-                self.blur_max = 3
+                self.blur_max = 4
             elif self.all_paste_files_used_count == 3:
-                self.blur_thresh = 30
-                self.bright_thresh = 40
+                self.blur_thresh = 90
+                self.bright_thresh = 90
+                self.bright_max = 30
+                self.contrast_max = 0.03
+                self.blur_max = 3
+            elif self.all_paste_files_used_count == 3 or \
+                 self.all_paste_files_used_count == 4 or \
+                 self.all_paste_files_used_count == 5:
+                self.blur_thresh = 90
+                self.bright_thresh = 90
                 self.bright_max = 30
                 self.contrast_max = 0.03
                 self.blur_max = 2
+            elif self.all_paste_files_used_count == 6:
+                self.blur_thresh = 95
+                self.bright_thresh = 95
+                self.bright_max = 70
+                self.contrast_max = 0.2
+                self.blur_max = 5
+                self.force_scale = 1.0
+            elif self.all_paste_files_used_count == 7:
+                self.blur_thresh = 95
+                self.bright_thresh = 95
+                self.bright_max = 80
+                self.contrast_max = 0.15
+                self.blur_max = 6
+            elif self.all_paste_files_used_count == 12:
+                self.force_scale = 1.0
+                self.all_paste_files_used_count = 0
 
         return self.paste_image_idx
 
@@ -259,7 +297,7 @@ class RealImageDataGen ():
 
     def rotatePasteImageRandom(self, paste_img, labels, rotate_deg):
         if rotate_deg == 0:
-            rotate_deg = self.getForcedRandomRotationValue(self.max_canvas_rotation)
+            rotate_deg = self.getForcedRandomRotationValue(self.max_paste_rotation)
 
         logging.info("  rotate_deg: {}.".format(rotate_deg))
 
@@ -508,8 +546,30 @@ class RealImageDataGen ():
 
                     # utils.showAndWait('before bright', paste_img)
 
-                    bright_val = np.random.randint(-self.bright_max, self.bright_max)
+                    # Check the overal brightness and darkness of the image. If it is too bright then only darken
+                    # if it is too dark then only lighten
+                    light_mask = cv2.inRange(paste_img, np.array([210, 210, 210]), np.array([255, 255, 255]))
+                    dark_mask = cv2.inRange(paste_img, np.array([0, 0, 0]), np.array([45, 45, 45]))
+
+                    # utils.showAndWait('paste_img bright', paste_img)
+                    # utils.showAndWait('light_mask bright', light_mask)
+                    # utils.showAndWait('dark_mask bright', dark_mask)
+
+                    where_light = np.array(np.where(light_mask))
+                    where_dark = np.array(np.where(dark_mask))
+
                     contrast_val = np.random.normal(1.0, self.contrast_max)
+                    if len(where_light[0]) > ((paste_height * paste_width) * 0.65):
+                        logging.info("image is overly bright. Only allowing dimming. bright val: {}".format(len(where_light[0])))
+                        bright_val = np.random.randint(-self.bright_max, 0)
+                        contrast_val = 1 - abs(1 - contrast_val)
+                    elif len(where_dark[0]) > ((paste_height * paste_width) * 0.65):
+                        logging.info("image is overly dim. Only allowing brightning. bright val: {}".format(len(where_dark[0])))
+                        bright_val = np.random.randint(0, self.bright_max)
+                        contrast_val = 1 + abs(1 - contrast_val)
+                    else:
+                        bright_val = np.random.randint(-self.bright_max, self.bright_max)
+
                     if contrast_val < 0.5:
                         contrast_val = 0.7
                     if contrast_val > 1.5:
@@ -528,7 +588,7 @@ class RealImageDataGen ():
                 if blur_val < self.blur_thresh:
                     logging.info("    blur_val: {}. bluring image.".format(blur_val))
 
-                    blur_kernel = np.random.randint(0, self.blur_max)
+                    blur_kernel = np.random.randint(1, self.blur_max)
                     logging.info("    blur_kernel: {}".format(blur_kernel))
                     if blur_kernel > 0:
                         # blured_roi = cv2.GaussianBlur(merged_roi, (blur_val, blur_val), 0)
@@ -538,22 +598,36 @@ class RealImageDataGen ():
 
                 # Scale the image
                 logging.info("min area: {}".format(min_area))
-                forced_min_area = min_area * self.force_scale
-                if self.force_scale > 0 and forced_min_area > self.min_paste_label_area:
-                    paste_width = int(paste_width * self.force_scale)
-                    paste_height = int(paste_height * self.force_scale)
+                if paste_width >= canvas_width * 0.98:
+                    force_scale = (canvas_width * 0.9) / paste_width
+                elif paste_height >= canvas_height *.98:
+                    force_scale = (canvas_height * 0.9) / paste_height
+                else:
+                    force_scale = self.force_scale
 
-                    paste_img = cv2.resize(paste_img, dsize=(paste_width, paste_height),
-                                           interpolation=cv2.INTER_AREA)
-                    if self.generate_masks:
-                        mask_img = cv2.resize(mask_img, dsize=(paste_width, paste_height),
-                                              interpolation=cv2.INTER_AREA)
-                    labels = self.scaleLabels(labels, self.force_scale)
-                elif forced_min_area < self.min_paste_label_area:
-                    logging.info("forced min area below min area: {} < {}".format(forced_min_area,
-                                                                                  self.min_paste_label_area))
+                # if min_area < 500:
+                #     min_area = min_area
 
-                if self.force_scale > 0:
+                forced_min_area = min_area * force_scale
+                logging.info("forced_min_area: {}, force_scale: {}".format(forced_min_area, force_scale))
+                if force_scale > 0:
+                    if forced_min_area > self.min_paste_label_area:
+                        paste_width = int(paste_width * force_scale)
+                        paste_height = int(paste_height * force_scale)
+
+                        paste_img = cv2.resize(paste_img, dsize=(paste_width, paste_height),
+                                               interpolation=cv2.INTER_AREA)
+                        if self.generate_masks:
+                            mask_img = cv2.resize(mask_img, dsize=(paste_width, paste_height),
+                                                  interpolation=cv2.INTER_AREA)
+                        labels = self.scaleLabels(labels, force_scale)
+                    elif forced_min_area < self.min_paste_label_area:
+                        logging.info("forced min area below min area: {} < {}".format(forced_min_area,
+                                                                                      self.min_paste_label_area))
+                        logging.info("resetting scale to 1.0")
+                        force_scale = 1.0
+
+                if force_scale > 0:
                     paste_img, labels = self.rotatePasteImageRandom(paste_img, labels, rotate_deg=0)
 
                     paste_width = paste_img.shape[1]
@@ -625,11 +699,11 @@ class RealImageDataGen ():
             return
 
         canvas_img = np.array(canvas_img)
-        canvas_img = utils.drawLabels(canvas_img, all_labels)
+        # canvas_img = utils.drawLabels(canvas_img, all_labels)
 
         # utils.showAndWait('canvas_img', canvas_img)
 
-        save_img_filename = '{}_{}_{}.png'.format(self.file_prefix, canvas_idx, tile_idx)
+        save_img_filename = '{}_{}_{}.jpg'.format(self.file_prefix, canvas_idx, tile_idx)
         save_img_file = save_img_dir + '/{}'.format(save_img_filename)
         logging.info("saving image: {}".format(save_img_file))
         cv2.imwrite(save_img_file, canvas_img)
@@ -728,7 +802,7 @@ class RealImageDataGen ():
 
                 cut_canvas_img = canvas_img[cut_y:(cut_y+tile_height), cut_x:(cut_x+tile_width)].copy()
 
-                flipped_canvas_img = utils.randomFlipImage(cut_canvas_img)
+                flipped_canvas_img = utils.randomFlipImage(cut_canvas_img, vert_perc=50)
                 if rotate_deg != 0:
                     rotated_canvas_img = self.rotateCanvasImage(flipped_canvas_img, rotate_deg)
 
@@ -761,65 +835,61 @@ class RealImageDataGen ():
 
         # Go through each canvas image and generate a set of images from it depending on its size.
         canvas_idx = 1
-        while self.all_paste_files_used_count < 4:
-            for canvas_img_file in canvas_img_files:
-                # canvas_img_file = '/media/dcofer/Ubuntu_Data/drone_images/landscapes/vlcsnap-2018-12-21-1.png'
-                # canvas_img_orig = misc.imread(canvas_img_file)
-                canvas_img_orig = cv2.imread(canvas_img_file)
-                # utils.showAndWait('canvas_img_orig', canvas_img_orig)
+        for canvas_img_file in canvas_img_files:
+            # canvas_img_file = '/media/dcofer/Ubuntu_Data/drone_images/landscapes/vlcsnap-2018-12-21-1.png'
+            # canvas_img_orig = misc.imread(canvas_img_file)
+            canvas_img_orig = cv2.imread(canvas_img_file)
+            # utils.showAndWait('canvas_img_orig', canvas_img_orig)
 
-                logging.info("Processing file {}. Shape {}".format(canvas_img_file, canvas_img_orig.shape))
+            logging.info("Processing file {}. Shape {}".format(canvas_img_file, canvas_img_orig.shape))
 
-                width_multiple = float(canvas_img_orig.shape[1])/self.final_img_width
-                height_multiple = float(canvas_img_orig.shape[0])/self.final_img_height
+            width_multiple = float(canvas_img_orig.shape[1])/self.final_img_width
+            height_multiple = float(canvas_img_orig.shape[0])/self.final_img_height
 
-                # If one of the dimensions are less than our final values then just use this image once as is.
-                if width_multiple < 1 or height_multiple < 1:
-                    ratio = float(self.final_img_width) / self.final_img_height
+            # If one of the dimensions are less than our final values then just use this image once as is.
+            if width_multiple < 1 or height_multiple < 1:
+                ratio = float(self.final_img_width) / self.final_img_height
 
-                    # Use the dimension that is smallest and scale the image up so it is greater than final image height
-                    if width_multiple < height_multiple:
-                        new_height = int(canvas_img_orig.shape[0] * ratio)
-                        if new_height < self.final_img_height:
-                            new_height = self.final_img_height
-                        canvas_img = resize(canvas_img_orig, [new_height, self.final_img_width])
-                    else:
-                        new_width = int(canvas_img_orig.shape[1] * ratio)
-                        if new_width < self.final_img_width:
-                            new_width = self.final_img_width
-                        canvas_img = resize(canvas_img_orig, [self.final_img_height, new_width])
+                # Use the dimension that is smallest and scale the image up so it is greater than final image height
+                if width_multiple < height_multiple:
+                    new_height = int(canvas_img_orig.shape[0] * ratio)
+                    if new_height < self.final_img_height:
+                        new_height = self.final_img_height
+                    canvas_img = resize(canvas_img_orig, [new_height, self.final_img_width])
                 else:
-                    canvas_img = canvas_img_orig
+                    new_width = int(canvas_img_orig.shape[1] * ratio)
+                    if new_width < self.final_img_width:
+                        new_width = self.final_img_width
+                    canvas_img = resize(canvas_img_orig, [self.final_img_height, new_width])
+            else:
+                canvas_img = canvas_img_orig
 
-                canvas_img = img_as_ubyte(canvas_img.copy())
-                # utils.showAndWait('canvas_img', canvas_img)
-                # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/canvas_img.png', canvas_img)
+            canvas_img = img_as_ubyte(canvas_img.copy())
+            # utils.showAndWait('canvas_img', canvas_img)
+            # cv2.imwrite('/media/dcofer/Ubuntu_Data/drone_images/canvas_img.png', canvas_img)
 
-                # Now recompute the multiple after potential resizing
-                width_multiple = float(canvas_img.shape[1])/self.final_img_width
-                height_multiple = float(canvas_img.shape[0])/self.final_img_height
+            # Now recompute the multiple after potential resizing
+            width_multiple = float(canvas_img.shape[1])/self.final_img_width
+            height_multiple = float(canvas_img.shape[0])/self.final_img_height
 
-                tile_idx = self.splitCanvasIntoTiles(canvas_img_file, canvas_img, paste_labels,
-                                                     save_img_dir, save_label_dir,
-                                                     width_multiple, height_multiple,
-                                                     canvas_idx, out_labels)
+            tile_idx = self.splitCanvasIntoTiles(canvas_img_file, canvas_img, paste_labels,
+                                                 save_img_dir, save_label_dir,
+                                                 width_multiple, height_multiple,
+                                                 canvas_idx, out_labels)
 
-                # Now resize the entire image into the final size and add paste images.
-                whole_canvas_img = img_as_ubyte(resize(canvas_img_orig, [self.final_img_height, self.final_img_width]))
+            # Now resize the entire image into the final size and add paste images.
+            whole_canvas_img = img_as_ubyte(resize(canvas_img_orig, [self.final_img_height, self.final_img_width]))
 
-                # utils.showAndWait('whole_canvas_img', whole_canvas_img)
-                flipped_canvas_img = np.fliplr(whole_canvas_img)
-                # utils.showAndWait('flipped_canvas_img', flipped_canvas_img)
-                rotated_canvas_img = self.rotateCanvasImage(flipped_canvas_img)
+            # utils.showAndWait('whole_canvas_img', whole_canvas_img)
+            flipped_canvas_img = np.fliplr(whole_canvas_img)
+            # utils.showAndWait('flipped_canvas_img', flipped_canvas_img)
+            rotated_canvas_img = self.rotateCanvasImage(flipped_canvas_img)
 
-                self.addPastedImages(canvas_img_file, rotated_canvas_img, paste_labels, save_img_dir,
-                                     save_label_dir, canvas_idx, tile_idx+1, out_labels)
-                canvas_idx += 1
+            self.addPastedImages(canvas_img_file, rotated_canvas_img, paste_labels, save_img_dir,
+                                 save_label_dir, canvas_idx, tile_idx+1, out_labels)
+            canvas_idx += 1
 
-                logging.info("Canvas Idx: {}".format(canvas_idx))
-
-                if self.all_paste_files_used_count > 3:
-                    break
+            logging.info("Canvas Idx: {}".format(canvas_idx))
 
         json_txt = json.dumps(out_labels)
         out_file = save_img_dir + "/real_output_labels.json"
