@@ -194,15 +194,14 @@ class SimImageDataGen():
                 self.blur_max = 3
                 self.max_pasted_per_canvas = 4
             elif self.all_paste_files_used_count == 3 or \
-                self.all_paste_files_used_count == 4 or \
-                self.all_paste_files_used_count == 5:
+                 self.all_paste_files_used_count == 4:
                 self.blur_thresh = 90
                 self.bright_thresh = 90
                 self.bright_max = 30
                 self.contrast_max = 0.03
                 self.blur_max = 3
                 self.max_pasted_per_canvas = 4
-            elif self.all_paste_files_used_count == 6:
+            elif self.all_paste_files_used_count == 5:
                 self.blur_thresh = 100
                 self.bright_thresh = 100
                 self.bright_max = 70
@@ -210,14 +209,14 @@ class SimImageDataGen():
                 self.blur_max = 5
                 self.max_pasted_per_canvas = 2
                 self.max_paste_dim_size = int(self.final_img_width * 0.8)
-            elif self.all_paste_files_used_count == 7:
+            elif self.all_paste_files_used_count == 6:
                 self.blur_thresh = 100
                 self.bright_thresh = 100
                 self.bright_max = 80
                 self.contrast_max = 0.15
                 self.blur_max = 6
                 self.max_pasted_per_canvas = 3
-            elif self.all_paste_files_used_count == 12:
+            elif self.all_paste_files_used_count == 11:
                 self.max_paste_dim_size = int(self.final_img_width * 0.8)
                 self.all_paste_files_used_count = 0
 

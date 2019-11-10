@@ -30,7 +30,7 @@ def processArgs():
                         help='dir where data will be generated.')
     parser.add_argument('--paste_label_json', type=str, required=True,
                         help='paste label json file.')
-    parser.add_argument('--min_paste_label_area', type=int, default=250,
+    parser.add_argument('--min_paste_label_area', type=int, default=450,
                         help='minimum size of smallest dimension of pasted image.')
     parser.add_argument('--max_paste_rotation', type=int, default=80,
                         help='maximum rotation that can be randomly added to pasted image.')
@@ -77,7 +77,7 @@ class RealImageDataGen ():
 
         self.generate_masks = False
 
-        self.force_scale = -1.0  # When -1 it means use default image label size.
+        self.force_scale = 1.0  # When -1 it means use default image label size.
         self.blur_thresh = 10
         self.bright_thresh = 10
         self.bright_max = 50
@@ -694,10 +694,6 @@ class RealImageDataGen ():
 
         # utils.showAndWait('canvas_img', canvas_img)
 
-        if len(labels) <= 0:
-            logging.warning("Labels for image were blank. Skipping.")
-            return
-
         canvas_img = np.array(canvas_img)
         # canvas_img = utils.drawLabels(canvas_img, all_labels)
 
@@ -712,7 +708,7 @@ class RealImageDataGen ():
         save_label_file = save_label_dir + '/{}_{}_{}.txt'.format(self.file_prefix, canvas_idx, tile_idx)
         logging.info("saving lable: {}".format(save_label_file))
         # utils.saveDetectNetLabelFile('Car', labels, save_label_file)
-        utils.saveYoloLabelFile(0, labels, save_label_file, img_width=canvas_width, img_height=canvas_height)
+        utils.saveYoloLabelFile(0, all_labels, save_label_file, img_width=canvas_width, img_height=canvas_height)
 
         if self.generate_masks and canvas_mask_img is not None:
             save_mask_file = save_label_dir + '/{}'.format(save_img_filename)

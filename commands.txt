@@ -1,0 +1,14 @@
+python ./real_image_data_gen.py --canvas_image_dir=/media/dcofer/Ubuntu_Data/drone_images/landscapes --paste_image_dir=/media/dcofer/Ubuntu_Data/drone-net/images --paste_label_json=/media/dcofer/Ubuntu_Data/drone-net/images/drone-net-train.json --save_dir=/media/dcofer/Ubuntu_Data/drone_images/real_sim_608/real_608_train --max_canvas_images=-1
+
+python ./real_image_data_gen.py --canvas_image_dir=/media/dcofer/Ubuntu_Data/drone_images/landscapes --paste_image_dir=/media/dcofer/Ubuntu_Data/drone-net/images --paste_label_json=/media/dcofer/Ubuntu_Data/drone-net/images/drone-net-val.json --save_dir=/media/dcofer/Ubuntu_Data/drone_images/real_sim_608/real_608_val --max_canvas_images=250
+
+python ./sim_image_data_gen.py --canvas_image_dir=/media/dcofer/Ubuntu_Data/drone_images/landscapes --paste_image_dir=/media/dcofer/Ubuntu_Data/drone_images/drones_train --paste_label_dir=/media/dcofer/Ubuntu_Data/drone_images/drones_train_labels --save_dir=/media/dcofer/Ubuntu_Data/drone_images/real_sim_608/sim_608_train --max_canvas_images=-1
+
+python ./sim_image_data_gen.py --canvas_image_dir=/media/dcofer/Ubuntu_Data/drone_images/landscapes --paste_image_dir=/media/dcofer/Ubuntu_Data/drone_images/drones_val --paste_label_dir=/media/dcofer/Ubuntu_Data/drone_images/drones_val_labels --save_dir=/media/dcofer/Ubuntu_Data/drone_images/real_sim_608/sim_608_val --max_canvas_images=250
+
+ln -s ../images/*.jpg .
+
+ln -s ../labels/*.txt .
+
+
+./darknet detector train cfg/drone.data cfg/yolov3-drone.cfg weights/darknet53.conv.74 -map

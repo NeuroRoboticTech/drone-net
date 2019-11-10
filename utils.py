@@ -170,8 +170,8 @@ def loadYoloLabels(label_file):
 def saveYoloLabelFile(label, list, filename, img_width, img_height):
     with open(filename, 'w') as f:
         for l in list:
-            x_center = float(l['x']) / float(img_width)
-            y_center = float(l['y']) / float(img_height)
+            x_center = (l['x'] + float(l['width'])/2.0) / float(img_width)
+            y_center = (l['y'] + float(l['height'])/2.0) / float(img_height)
             width = float(l['width']) / float(img_width)
             height = float(l['height']) / float(img_height)
 
