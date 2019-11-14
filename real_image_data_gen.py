@@ -366,73 +366,9 @@ class RealImageDataGen ():
             new_l['height'] = (max_y - min_y)
 
             new_labels.append(new_l)
-            self.printLabelDims(new_labels)
+            utils.printLabelDims(new_labels)
 
         return rotated, new_labels
-
-    def flipLabels(self, labels, paste_dim, vertical=False):
-
-        new_labels = []
-        for l in labels:
-            # new_labels.append([paste_width - l[2], l[1], paste_width - l[0], l[3]])
-
-            new_l = l.copy()
-
-            if not vertical:
-                new_l['x'] = paste_dim - (l['x'] + l['width'])
-            else:
-                new_l['y'] = paste_dim - (l['y'] + l['height'])
-
-            new_labels.append(new_l)
-
-            #new_labels.append([paste_width-l[2], l[1], paste_width-l[0], l[3]])
-
-        self.printLabelDims(new_labels)
-
-        return new_labels
-
-    def adjustLabels(self, labels, x, y):
-
-        new_labels = []
-        for l in labels:
-            new_l = l.copy()
-            new_l['x'] = x + l['x']
-            new_l['y'] = y + l['y']
-            new_labels.append(new_l)
-
-        self.printLabelDims(new_labels)
-
-        return new_labels
-
-    def scaleLabels(self, labels, ratio):
-
-        new_labels = []
-        for l in labels:
-            new_l = l.copy()
-            new_l['x'] = l['x'] * ratio
-            new_l['y'] = l['y'] * ratio
-            new_l['width'] = l['width'] * ratio
-            new_l['height'] = l['height'] * ratio
-            new_labels.append(new_l)
-
-        self.printLabelDims(new_labels)
-
-        return new_labels
-
-    def printLabelDims(self, labels):
-
-        if len(labels) > 0:
-            min_area = 99999999999
-            for l in labels:
-                logging.info("    x: {0:.2f}, y: {0:.2f}, w: {0:.2f}, h: {0:.2f}".format(l['x'], l['y'], l['width'], l['height']))
-                area = l['width'] * l['height']
-                if area < min_area:
-                    min_area = area
-
-            return min_area
-        else:
-            return 0.0
-
 
     def loadMaskImage(self, paste_img_file, cut_height=0):
 
@@ -529,7 +465,7 @@ class RealImageDataGen ():
                 paste_height = paste_img.shape[0]
                 logging.info("    paste_width: {}".format(paste_width))
                 logging.info("    paste_height: {}".format(paste_height))
-                min_area = self.printLabelDims(labels)
+                min_area = utils.printLabelDims(labels)
 
                 # If the paste height is greater than the canvas height then rotate by 90 or -90 degrees.
                 if paste_height > canvas_height:
@@ -620,7 +556,7 @@ class RealImageDataGen ():
                         if self.generate_masks:
                             mask_img = cv2.resize(mask_img, dsize=(paste_width, paste_height),
                                                   interpolation=cv2.INTER_AREA)
-                        labels = self.scaleLabels(labels, force_scale)
+                        labels = utils.scaleLabels(labels, force_scale)
                     elif forced_min_area < self.min_paste_label_area:
                         logging.info("forced min area below min area: {} < {}".format(forced_min_area,
                                                                                       self.min_paste_label_area))
@@ -647,7 +583,7 @@ class RealImageDataGen ():
                         paste_img = np.fliplr(paste_img)
                         if mask_img is not None:
                             mask_img = np.fliplr(mask_img)
-                        labels = self.flipLabels(labels, paste_width, vertical=False)
+                        labels = utils.flipLabels(labels, paste_width, vertical=False)
 
                         # paste_img = utils.drawLabels(paste_img, labels)
                         # utils.showAndWait('paste_img', paste_img)
@@ -660,7 +596,7 @@ class RealImageDataGen ():
                     #     paste_img = np.flipud(paste_img)
                     #     if mask_img is not None:
                     #         mask_img = np.flipud(mask_img)
-                    #     labels = self.flipLabels(labels, paste_height, vertical=True)
+                    #     labels = utils.flipLabels(labels, paste_height, vertical=True)
                     #
                     #     paste_img = utils.drawLabels(paste_img, labels)
                     #     utils.showAndWait('paste_img', paste_img)
@@ -680,7 +616,7 @@ class RealImageDataGen ():
 
                     # utils.showAndWait('canvas_img', canvas_img)
 
-                    labels = self.adjustLabels(labels, paste_x, paste_y)
+                    labels = utils.adjustLabels(labels, paste_x, paste_y)
 
                     all_labels.extend(labels)
 

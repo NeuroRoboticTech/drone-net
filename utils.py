@@ -8,6 +8,7 @@ import cv2
 import scipy.misc as misc
 import math
 from PIL import Image
+from geometry import *
 
 
 def setupLogging(prefix):
@@ -287,6 +288,77 @@ def drawLabels(img_in, labels):
 
     return img
 
+
+def getYoloCoords(obj, img_width, img_height):
+    coords = obj['relative_coordinates']
+    conf = float(obj['confidence'])
+
+    width = coords['width'] * img_width
+    height = coords['height'] * img_height
+
+    x_center = (coords['center_x'] * img_width)
+    y_center = (coords['center_y'] * img_height)
+
+    x_min = x_center - int(width / 2.0)
+    y_min = y_center - int(height / 2.0)
+
+    x_max = x_center + int(width / 2.0)
+    y_max = y_center + int(height / 2.0)
+
+    top_left = (int(x_min), int(y_min))
+    top_right = (int(x_max), int(y_min))
+    bottom_right = (int(x_max), int(y_max))
+    bottom_left = (int(x_min), int(y_max))
+
+    return top_left, top_right, bottom_left, bottom_right, width, height, conf
+
+
+def drawYoloObjectLabels(img_in, labels):
+
+    img = img_in.copy()
+
+    for l in labels:
+        logging.info(l)
+
+        top_left, top_right, bottom_left, bottom_right, width, height, conf = getYoloCoords(l,
+                                                                                            img_in.shape[1],
+                                                                                            img_in.shape[0])
+        if conf > 0.25:
+            color = (0, 0, 255)
+        else:
+            color = (0, 255, 255)
+
+        img = cv2.line(img, top_left, top_right, color=color, thickness=3)
+        img = cv2.line(img, top_right, bottom_right, color=color, thickness=3)
+        img = cv2.line(img, bottom_right, bottom_left, color=color, thickness=3)
+        img = cv2.line(img, bottom_left, top_left, color=color, thickness=3)
+
+    return img
+
+
+def overlapsYolo(annotations, yolo_labels, img_width, img_height):
+
+    overlaps_count = 0
+    for a in annotations:
+        a_rect = Rect(a['x'], a['y'], a['width'], a['height'])
+
+        for y in yolo_labels:
+            top_left, top_right, bottom_left, bottom_right, width, height, conf = getYoloCoords(y,
+                                                                                                img_width,
+                                                                                                img_height)
+
+            y_rect = Rect(top_left[0], top_left[1], width, height)
+
+            if y_rect.overlaps(a_rect):
+                overlaps_count += 1
+                break
+
+    if overlaps_count >= len(annotations):
+        return True
+    else:
+        return False
+
+
 def randomFlipImage(img_in, flip_horizontal=True, flip_vertical=True,
                     horiz_perc=50, vert_perc=10):
     if flip_horizontal:
@@ -308,3 +380,67 @@ def randomFlipImage(img_in, flip_horizontal=True, flip_vertical=True,
             flipped_canvas_img = flipped_canvas_img
 
     return flipped_canvas_img
+
+
+def flipLabels(labels, paste_dim, vertical=False):
+
+    new_labels = []
+    for l in labels:
+        # new_labels.append([paste_width - l[2], l[1], paste_width - l[0], l[3]])
+
+        new_l = l.copy()
+
+        if not vertical:
+            new_l['x'] = paste_dim - (l['x'] + l['width'])
+        else:
+            new_l['y'] = paste_dim - (l['y'] + l['height'])
+
+        new_labels.append(new_l)
+
+        #new_labels.append([paste_width-l[2], l[1], paste_width-l[0], l[3]])
+
+    printLabelDims(new_labels)
+
+    return new_labels
+
+def adjustLabels(labels, x, y):
+
+    new_labels = []
+    for l in labels:
+        new_l = l.copy()
+        new_l['x'] = x + l['x']
+        new_l['y'] = y + l['y']
+        new_labels.append(new_l)
+
+    printLabelDims(new_labels)
+
+    return new_labels
+
+def scaleLabels(labels, ratio):
+
+    new_labels = []
+    for l in labels:
+        new_l = l.copy()
+        new_l['x'] = l['x'] * ratio
+        new_l['y'] = l['y'] * ratio
+        new_l['width'] = l['width'] * ratio
+        new_l['height'] = l['height'] * ratio
+        new_labels.append(new_l)
+
+    printLabelDims(new_labels)
+
+    return new_labels
+
+def printLabelDims(labels):
+
+    if len(labels) > 0:
+        min_area = 99999999999
+        for l in labels:
+            logging.info("    x: {0:.2f}, y: {0:.2f}, w: {0:.2f}, h: {0:.2f}".format(l['x'], l['y'], l['width'], l['height']))
+            area = l['width'] * l['height']
+            if area < min_area:
+                min_area = area
+
+        return min_area
+    else:
+        return 0.0
