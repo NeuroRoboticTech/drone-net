@@ -131,15 +131,17 @@ class AnalyzeScaledImages ():
                         predicted = self.yolo_labels[scaled_file]
                         logging.info("found {} in predicted yolo labels.".format(scaled_base_file))
 
-                        # img_in = cv2.imread(img_file)
+                        img_in = cv2.imread(img_file)
 
                         pred_objects = predicted['objects']
-                        # img_labeled = utils.drawYoloObjectLabels(img_in, pred_objects)
+                        img_labeled = utils.drawYoloObjectLabels(img_in, pred_objects)
 
                         if utils.overlapsYolo(annotations, pred_objects, self.img_width, self.img_height) and \
                            (min_area < min_file_area or min_file_area < 0):
                             min_file_area = min_area
 
+                        out_img_path = self.save_dir + "/" + scaled_file
+                        cv2.imwrite(out_img_path, img_labeled)
                         # utils.showAndWait('img_labeled', img_labeled)
                     else:
                         logging.warning("{} was not found in yolo labels.".format(scaled_base_file))

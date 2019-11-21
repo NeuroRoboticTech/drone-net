@@ -14,8 +14,10 @@ ln -s ../labels/*.txt .
 ./darknet detector train cfg/drone.data cfg/yolov3-drone.cfg weights/darknet53.conv.74 -map
 
 
-./darknet detector demo cfg/drone.data cfg/yolov3-drone.cfg weights_real_sim_good/yolov3-drone_best.weights /media/dcofer/DISK_IMG/drones/takedown_608.mp4 -thresh 0.05
+./darknet detector demo cfg/drone.data cfg/yolov3-drone.cfg weights_real_sim_good/yolov3-drone_best.weights /media/dcofer/CLONEZILLA/temp/redstone_takedown.mp4 -thresh 0.05
 
-./darknet detector test cfg/drone.data cfg/yolov3-drone.cfg weights_real_sim_good/yolov3-drone_best.weights -thresh 0.05 -ext_output -dont_show -out scaled_results.json < /media/dcofer/Ubuntu_Data/drone_images/real_sim_608/real_608_val/scaled.txt 
+./darknet detector test cfg/drone.data cfg/yolov3-drone.cfg weights_real_sim_good/yolov3-drone_best.weights -thresh 0.05 -ext_output -dont_show -out scaled_results.json < /media/dcofer/Ubuntu_Data/drone_images/real_sim_608/real_scaled_files.txt 
 
+
+./darknet detector test cfg/drone.data cfg/yolov3-drone.cfg weights_real_sim_good/yolov3-drone_best.weights -thresh 0.05 /media/dcofer/Ubuntu_Data/drone_images/real_drones/redstone_takedown_1.jpg
 
